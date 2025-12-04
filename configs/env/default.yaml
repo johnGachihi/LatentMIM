@@ -1,4 +1,4 @@
-workers: 64
+workers: 10
 
 world_size: 1
 rank: 0
@@ -10,11 +10,11 @@ node: localhost
 distributed: True
 seed:
 gpu:
-ngpu: 8
-mem_gb: 128
+ngpu: 1
+mem_gb: 62
 pin_mem: True
 
-slurm: True
+slurm: False
 slurm_suffix: ""
 slurm_partition: abhinav,all
 slurm_timeout: 360

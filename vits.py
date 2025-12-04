@@ -31,15 +31,16 @@ class PatchEmbed(nn.Module):
 
 class Patchify:
     """ Image to Patch"""
-    def __init__(self, patch_size, grid_size=None):
+    def __init__(self, patch_size, grid_size=None, in_chans=3):
         self.patch_size = to_2tuple(patch_size)
         self.grid_size = to_2tuple(grid_size)
+        self.in_chans = in_chans
         self.num_patches = self.grid_size[0] * self.grid_size[1]
 
     def patchify(self, imgs, gap):
         """
-        imgs: (N, 3, H, W)
-        x: (N, L, patch_size**2 *3)
+        imgs: (N, C, H, W)
+        x: (N, L, patch_size**2 * C)
         """
         bs = imgs.shape[0]
         ph, pw = self.patch_size
@@ -47,29 +48,29 @@ class Patchify:
         assert w % (pw + gap) == 0 and h % (ph + gap) == 0
 
         th, tw = h // (ph + gap), w // (pw + gap)
-        x = imgs.reshape(shape=(bs, 3, th, ph+gap, tw, pw+gap))
+        x = imgs.reshape(shape=(bs, self.in_chans, th, ph+gap, tw, pw+gap))
         x = torch.einsum('nchpwq->nhwpqc', x)
         if gap > 0:
             stx = (torch.randint(0, gap, x.shape[:3]).unsqueeze(-1) + torch.arange(ph)).to(x.device)
             sty = (torch.randint(0, gap, x.shape[:3]).unsqueeze(-1) + torch.arange(pw)).to(x.device)
             x = x.gather(dim=3, index=stx[:, :, :, :, None, None].repeat(1, 1, 1, 1, x.shape[4], x.shape[5]))
             x = x.gather(dim=4, index=sty[:, :, :, None, :, None].repeat(1, 1, 1, x.shape[3], 1, x.shape[5]))
-        x = x.reshape(shape=(bs, th * tw, ph * pw * 3))
+        x = x.reshape(shape=(bs, th * tw, ph * pw * self.in_chans))
         return x
 
     def unpatchify(self, x):
         """
-        x: (N, L, patch_size**2 *3)
-        imgs: (N, 3, H, W)
+        x: (N, L, patch_size**2 * C)
+        imgs: (N, C, H, W)
         """
         bs = x.shape[0]
         ph, pw = self.patch_size
         gh, gw = self.grid_size
         assert gh * gw == x.shape[1]
 
-        x = x.reshape(shape=(bs, gh, gw, ph, pw, 3))
+        x = x.reshape(shape=(bs, gh, gw, ph, pw, self.in_chans))
         x = torch.einsum('nhwpqc->nchpwq', x)
-        imgs = x.reshape(shape=(bs, 3, gh * ph, gw * pw))
+        imgs = x.reshape(shape=(bs, self.in_chans, gh * ph, gw * pw))
         return imgs
 
     def __call__(self, x, gap):
@@ -301,7 +302,7 @@ def build_vit(backbone, img_size=224, patch_gap=0, in_chans=3, out_chans=None, *
     cfg = CFG[backbone]
     grid_size = img_size // (cfg['patch_size'] + patch_gap)
 
-    patchify = Patchify(patch_size=cfg['patch_size'], img_size=img_size, patch_gap=patch_gap)
+    patchify = Patchify(patch_size=cfg['patch_size'], in_chans=in_chans)
     embed = PatchEmbed(patch_size=cfg['patch_size'], in_chans=in_chans, embed_dim=cfg['embed_dim'])
     head = nn.Linear(cfg['embed_dim'], out_chans, bias=True) if out_chans is not None else None
     model = VIT(patchify=patchify, embed_layer=embed, head=head,

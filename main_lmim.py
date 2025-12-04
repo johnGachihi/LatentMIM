@@ -64,16 +64,12 @@ def main_worker(local_rank, args):
 
     # simple augmentation
     train_img_size = args.grid_size * (args.patch_size + args.patch_gap)
-    train_transform = transforms.Compose([
-        transforms.RandomResizedCrop(train_img_size, scale=(args.min_crop, 1.0),
-                                     interpolation=transforms.InterpolationMode.BICUBIC), 
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+    train_hr_img_size = args.grid_size * args.sr_scale_factor * (args.patch_size + args.patch_gap)
+
     db_train = datasets.load_dataset(
-        args.dataset, args.data_path,
-        transform=train_transform,
-        train=True)
+        args.dataset, args.data_path, img_size=train_img_size, train=True,
+        use_hr_img=args.use_hr_image, load_both_images=args.use_hr_gram_loss,
+        hr_img_size=train_hr_img_size)
     
     eval_img_size = args.grid_size * args.patch_size
     db_eval = datasets.load_dataset(
@@ -110,6 +106,7 @@ def main_worker(local_rank, args):
         num_workers=args.env.workers,
         pin_memory=True,
         drop_last=True,
+        persistent_workers=True if args.env.workers > 0 else False
     )
 
     # define the model
@@ -129,7 +126,10 @@ def main_worker(local_rank, args):
         drop_path=args.drop_path,
         freeze_pe=args.freeze_pe,
         proj_cfg=args.proj,
-        mask_target=args.mask_target
+        mask_target=args.mask_target,
+        in_chans=4,
+        use_hr_gram_loss=args.use_hr_gram_loss,
+        sr_scale_factor=args.sr_scale_factor
     )
     model.to(device)
     model_without_ddp = model
@@ -213,8 +213,8 @@ def train_one_epoch(model: torch.nn.Module,
 
     optimizer.zero_grad()
 
-    for it, (images, _) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
-        # use acuumulated gradients
+    for it, batch in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+        # use acummulated gradients
         if it % accum_iter == 0:
             lr = lr_sched.adjust_learning_rate(optimizer, it / len(data_loader) + epoch, args)
             mom = adjust_target_momentum(it / len(data_loader) + epoch, args)
@@ -224,11 +224,26 @@ def train_one_epoch(model: torch.nn.Module,
             metric_logger.update(lr=lr)
             metric_logger.update(sim_trg=sim_trg)
 
+        if args.use_hr_gram_loss:
+            hr_images = batch[0]
+            images = batch[1]
+        else:
+            hr_images = None
+            images = batch[0]
+
         images = images.to(device, non_blocking=True)
+        if hr_images is not None:
+            hr_images = hr_images.to(device, non_blocking=True)
         with torch.cuda.amp.autocast():
-            loss, metrics = model(images, mom=mom, sim_trg=sim_trg, update_ema=it % accum_iter == 0)
+            loss, recon_loss, gram_loss, metrics = model(images, hr_images, mom=mom, sim_trg=sim_trg, update_ema=it % accum_iter == 0)
         loss_value = loss.item()
         metric_logger.update(loss=loss_value, **metrics)
+
+        if args.use_hr_gram_loss:
+            recon_loss_value = recon_loss.item()
+            gram_loss_value = gram_loss.item()
+            metric_logger.update(recon_loss=recon_loss_value, **metrics)
+            metric_logger.update(gram_loss=gram_loss_value, **metrics)
 
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
