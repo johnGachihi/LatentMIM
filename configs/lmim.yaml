@@ -5,11 +5,11 @@ defaults:
 
 worker: main_lmim
 output_dir: checkpoints
-job_name: latentMIM
+job_name: hr_model
 dataset: sen2venus
 data_path: /home/admin/AGML_ResearchGroup/SuperResolution/sen2venus/
 
-use_hr_image: False
+use_hr_image: True
 use_hr_gram_loss: False
 sr_scale_factor: 2
 
