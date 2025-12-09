@@ -1,0 +1,39 @@
+defaults:
+  - hydra: default
+  - env: default
+  - log: default
+
+worker: eval_linear_probe
+output_dir: checkpoints/eval
+job_name: eval_linear_probe_vit_small_from_scratch_p14
+pretrain_job_name: # Set to the pretrain job name to load checkpoint from
+
+# Dataset
+dataset: mados
+data_path: /home/admin/AGML_ResearchGroup/SuperResolution/mados
+img_size: 224
+filter_bands: [1, 2, 3, 6]  # BGR + NIR
+num_classes: 15
+
+# Model
+encoder: vit_small
+use_batchnorm: False
+
+# Evaluation mode
+eval_mode: linear_probe  # or 'finetune'
+
+# Checkpoint
+pretrained_checkpoint:  # ${output_dir}/${pretrain_job_name}/checkpoints/checkpoint_latest.pth
+resume: False
+
+# Training
+epochs: 100
+warmup_epochs: 10
+batch_size: 64
+accum_iter: 1
+
+# Optimizer
+blr: # 1e-2
+lr: 1e-3  # Will be computed from blr if not set
+min_lr_frac: 1
+weight_decay: 0.0

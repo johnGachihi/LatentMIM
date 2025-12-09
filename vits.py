@@ -302,7 +302,7 @@ def build_vit(backbone, img_size=224, patch_gap=0, in_chans=3, out_chans=None, *
     cfg = CFG[backbone]
     grid_size = img_size // (cfg['patch_size'] + patch_gap)
 
-    patchify = Patchify(patch_size=cfg['patch_size'], in_chans=in_chans)
+    patchify = Patchify(patch_size=cfg['patch_size'], grid_size=(grid_size, grid_size), in_chans=in_chans)
     embed = PatchEmbed(patch_size=cfg['patch_size'], in_chans=in_chans, embed_dim=cfg['embed_dim'])
     head = nn.Linear(cfg['embed_dim'], out_chans, bias=True) if out_chans is not None else None
     model = VIT(patchify=patchify, embed_layer=embed, head=head,

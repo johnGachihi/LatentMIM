@@ -84,3 +84,34 @@ class Solarize(object):
 
     def __call__(self, x):
         return ImageOps.solarize(x)
+
+
+def random_crop_resize_img_and_mask(
+    img, mask,
+    size: Tuple[int, int],
+    scale=(0.3, 1.0), ratio=(3 / 4, 4 / 3)
+):
+    """
+    Apply same random crop to both image and mask, then resize to target size.
+    Mask is resized using nearest neighbor interpolation to preserve label values.
+    """
+    i, j, h, w = T.RandomResizedCrop.get_params(img, scale=scale, ratio=ratio)
+
+    img = TF.crop(img, i, j, h, w)
+    mask = TF.crop(mask, i, j, h, w)
+
+    img = TF.resize(img, size)
+    mask = TF.resize(mask, size, interpolation=T.InterpolationMode.NEAREST)
+
+    return img, mask
+
+
+def resize_img_and_mask(img, mask, size: Tuple[int, int]):
+    """
+    Resize both image and mask to the target size.
+    Mask is resized using nearest neighbor interpolation to preserve label values.
+    """
+    img = TF.resize(img, size)
+    mask = TF.resize(mask, size, interpolation=T.InterpolationMode.NEAREST)
+
+    return img, mask
