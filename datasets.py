@@ -188,7 +188,7 @@ class Sen2Venus(torch.utils.data.Dataset):
         with h5py.File(self.hdf5_file, "r") as data_file:
             sample_idx = self.indices[idx]
             if self.load_both_images:
-                venus_img = torch.from_numpy(data_file["venus"][sample_idx])
+                venus_img = torch.from_numpy(data_file["sentinel2"][sample_idx])
                 sentinel2_img = torch.from_numpy(data_file["sentinel2"][sample_idx])
             elif self.use_hr_image:
                 venus_img = torch.from_numpy(data_file["venus"][sample_idx])
@@ -211,7 +211,7 @@ class Sen2Venus(torch.utils.data.Dataset):
         # -- normalize
         if self.normalize:
             if venus_img is not None:
-                venus_img = self._normalize(venus_img, self.VENUS_MEANS, self.VENUS_STDS)
+                venus_img = self._normalize(venus_img, self.SENTINEL2_MEANS, self.SENTINEL2_STDS)  # TODO!: Revert after experiment
             if sentinel2_img is not None:
                 sentinel2_img = self._normalize(sentinel2_img, self.SENTINEL2_MEANS, self.SENTINEL2_STDS)
 
