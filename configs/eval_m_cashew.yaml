@@ -5,7 +5,7 @@ defaults:
 
 worker: eval_linear_probe
 output_dir: checkpoints/eval
-job_name: eval_linear_probe_m_cashew_sr_model_ep300_3
+job_name: eval_linear_probe_m_cashew_sr_model_no_gsd_diff_ep300_3
 pretrain_job_name: # Set to the pretrain job name to load checkpoint from
 
 # Dataset
@@ -27,7 +27,7 @@ use_batchnorm: False
 eval_mode: linear_probe  # or 'finetune'
 
 # Checkpoint
-pretrained_checkpoint: /home/admin/john/LatentMIM/checkpoints/sr_model/checkpoints/checkpoint_0300.pth # ${output_dir}/${pretrain_job_name}/checkpoints/checkpoint_latest.pth
+pretrained_checkpoint: /home/admin/john/LatentMIM/checkpoints/sr_model_with_no_gsd_diff/checkpoints/checkpoint_0300.pth # ${output_dir}/${pretrain_job_name}/checkpoints/checkpoint_latest.pth
 resume: False
 
 # Training
