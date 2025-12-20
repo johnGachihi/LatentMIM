@@ -36,7 +36,7 @@ def paired_random_crop_resize(
     lr_img = TF.crop(lr_img, lr_i, lr_j, lr_h, lr_w)
 
     hr_img = TF.resize(hr_img, hr_img_size)
-    lr_img = TF.resize(lr_img, size)
+    lr_img = TF.resize(lr_img, size, interpolation=T.InterpolationMode.NEAREST)
 
     return hr_img, lr_img
 
@@ -50,7 +50,7 @@ def paired_resize(hr_img, lr_img, size: Tuple[int, int], hr_img_size=None):
         hr_img_size = size
 
     hr_img = TF.resize(hr_img, hr_img_size)
-    lr_img = TF.resize(lr_img, size)
+    lr_img = TF.resize(lr_img, size, interpolation=T.InterpolationMode.NEAREST)
 
     return hr_img, lr_img
 
