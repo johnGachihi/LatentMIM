@@ -32,7 +32,7 @@ class LMIM(nn.Module):
                  tau=0.2, num_vis=20, avg_vis_mask_token=True,
                  avg_sim_coeff=0., mask_target=True,
                  loss='infonce_patches', freeze_pe=None, proj_cfg=None,
-                 use_hr_gram_loss=False, sr_scale_factor=2):
+                 use_hr_gram_loss=False, hr_gram_loss_type="gram", sr_scale_factor=2):
         super().__init__()
 
         self.loss = loss
@@ -41,6 +41,7 @@ class LMIM(nn.Module):
         self.num_vis = num_vis
         self.avg_sim_coeff = avg_sim_coeff
         self.use_hr_gram_loss = use_hr_gram_loss
+        self.hr_gram_loss_type = hr_gram_loss_type
         self.sr_scale_factor = sr_scale_factor
         self.grid_size = grid_size
 
@@ -212,11 +213,16 @@ class LMIM(nn.Module):
             trg = F.normalize(trg, dim=-1)
             out = F.normalize(out, dim=-1)
 
-        # Compute similarities
-        trg_sim = torch.matmul(trg, trg.transpose(-1, -2))
-        out_sim = torch.matmul(out, out.transpose(-1, -2))
+        if self.hr_gram_loss_type == "gram":
+            # Compute similarities
+            trg_sim = torch.matmul(trg, trg.transpose(-1, -2))
+            out_sim = torch.matmul(out, out.transpose(-1, -2))
 
-        return F.mse_loss(out_sim, trg_sim)
+            return F.mse_loss(out_sim, trg_sim)
+        elif self.hr_gram_loss_type == "mse":
+            return F.mse_loss(out, trg)
+        else:
+            raise ValueError('hr_gram_loss_type can only be "gram" or "mse"')
 
     def forward(self, imgs, hr_img=None, mom=0.99, sim_trg=0.75, update_ema=False):
         # Image to patches
@@ -297,13 +303,13 @@ CFG = {
 
 def build_lmim(
     backbone, decoder_depth=3, decoder_embed_dim=512, decoder_num_heads=16,
-    in_chans=3, use_hr_gram_loss=False, sr_scale_factor=2, **kwargs
+    in_chans=3, use_hr_gram_loss=False, hr_gram_loss_type='gram', sr_scale_factor=2, **kwargs
 ):
     cfg = CFG[backbone]
     model = LMIM(
         patch_size=cfg['patch_size'], in_chans=in_chans, embed_dim=cfg['embed_dim'], depth=cfg['depth'],
         num_heads=cfg['num_heads'], decoder_embed_dim=decoder_embed_dim, decoder_depth=decoder_depth,
-        decoder_num_heads=decoder_num_heads, mlp_ratio=cfg['mlp_ratio'],
-        use_hr_gram_loss=use_hr_gram_loss, sr_scale_factor=sr_scale_factor,
+        decoder_num_heads=decoder_num_heads, mlp_ratio=cfg['mlp_ratio'], use_hr_gram_loss=use_hr_gram_loss,
+        hr_gram_loss_type=hr_gram_loss_type, sr_scale_factor=sr_scale_factor,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
     return model

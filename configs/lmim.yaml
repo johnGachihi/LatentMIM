@@ -5,12 +5,13 @@ defaults:
 
 worker: main_lmim
 output_dir: checkpoints
-job_name: sr_model_with_no_gsd_diff_lr_nn_resized
+job_name: sr_model_mse
 dataset: sen2venus
 data_path: /home/admin/AGML_ResearchGroup/SuperResolution/sen2venus/
 
 use_hr_image: False
 use_hr_gram_loss: True
+hr_gram_loss_type: mse  # gram or mse
 sr_scale_factor: 2
 
 encoder: vit_small

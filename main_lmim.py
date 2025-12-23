@@ -129,6 +129,7 @@ def main_worker(local_rank, args):
         mask_target=args.mask_target,
         in_chans=4,
         use_hr_gram_loss=args.use_hr_gram_loss,
+        hr_gram_loss_type=args.hr_gram_loss_type,
         sr_scale_factor=args.sr_scale_factor
     )
     model.to(device)
