@@ -5,12 +5,12 @@ defaults:
 
 worker: main_lmim
 output_dir: checkpoints
-job_name: sr_model_mse_bilinear_hr_and_lr
+job_name: lr_model_s448
 dataset: sen2venus
 data_path: /home/admin/AGML_ResearchGroup/SuperResolution/sen2venus/
 
 use_hr_image: False
-use_hr_gram_loss: True
+use_hr_gram_loss: False
 hr_gram_loss_type: mse  # gram or mse
 sr_scale_factor: 2
 
@@ -28,10 +28,10 @@ drop: 0.
 attn_drop: 0.
 drop_path: 0.
 
-input_size: 224
+input_size: 224  # !not used. use grid_size instead Todo: remove
 min_crop: 0.2
-grid_size: 14
-num_vis: 20
+grid_size: 28
+num_vis: 40
 patch_gap: 4
 avg_vis_mask_token: True # initialize the mask token with postion-weighted visible
 avg_sim_coeff: 0 

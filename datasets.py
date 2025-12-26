@@ -17,7 +17,7 @@ from util.transforms import (
     resize_img_and_mask
 )
 
-__all__ = ['imagenet', 'imagenet100', 'sen2venus', 'mados', 'm_cashew_plantation', 'm_sa_crop_type']
+__all__ = ['imagenet', 'imagenet100', 'sen2venus', 'rapidai4eo', 'mados', 'm_cashew_plantation', 'm_sa_crop_type']
 
 
 NUM_CLASSES = {
@@ -241,23 +241,197 @@ def sen2venus(data_path: str, train: bool = True,
     return dataset
 
 
+class RapidAI4EO(torch.utils.data.Dataset):
+    """
+    RapidAI4EO dataset for self-supervised pretraining with latentMIM.
+    Contains paired high-resolution (Planet, 200x200) and low-resolution (Sentinel-2, 60x60) satellite images.
+
+    HDF5 structure:
+        - sentinel2: (N, 12, 60, 60) - 12 bands at 10m resolution
+        - planet: (N, 4, 200, 200) - 4 bands (BGRN) at 3m resolution
+        - sample_ids: sample identifiers
+        - dates: acquisition dates
+    """
+    # Normalization statistics (computed from dataset)
+    # Sentinel-2: first 4 bands (B, G, R, NIR)
+    SENTINEL2_MEANS = [1370.0, 1184.0, 1120.0, 1041.0]
+    SENTINEL2_STDS = [514.0, 499.0, 566.0, 659.0]
+
+    # Planet: 4 bands (BGRN)
+    PLANET_MEANS = [876.0, 994.0, 943.0, 2519.0]
+    PLANET_STDS = [523.0, 468.0, 536.0, 819.0]
+
+    def __init__(
+        self,
+        data_path: str,
+        split: str = "train",
+        img_size: int = 60,
+        hr_img_size: int = 200,
+        use_hr_image: bool = True,
+        load_both_images: bool = False,
+        random_crop_resize: bool = True,
+        min_crop: float = 0.2,
+        normalize: bool = True,
+    ):
+        """
+        Args:
+            data_path: Path to directory containing rapidai4eo.h5 and rapidai4eo_splits.json
+            split: Which split to use ('train', 'val', or 'test')
+            img_size: Size to resize LR (Sentinel-2) images to
+            hr_img_size: Size to resize HR (Planet) images to
+            use_hr_image: If True, use HR (Planet) images; if False, use LR (Sentinel-2)
+            load_both_images: If True, return both HR and LR images
+            random_crop_resize: If True, apply random crop and resize for training
+            min_crop: Minimum crop scale for random resized crop
+            normalize: If True, normalize images using precomputed statistics
+        """
+        self.hdf5_file = Path(data_path) / "rapidai4eo.h5"
+        self.img_size = img_size
+        self.hr_img_size = hr_img_size
+        self.use_hr_image = use_hr_image
+        self.load_both_images = load_both_images
+        self.random_crop_resize = random_crop_resize
+        self.min_crop = min_crop
+        self.normalize = normalize
+
+        # Load split indices from JSON file
+        splits_file = Path(data_path) / "rapidai4eo_splits.json"
+        with open(splits_file, "r") as f:
+            self.indices = json.load(f)[split]
+
+    def __len__(self) -> int:
+        return len(self.indices)
+
+    def _paired_resize(self, planet_img, sentinel2_img):
+        """Resize both images with paired random crop."""
+        if self.random_crop_resize:
+            return paired_random_crop_resize(
+                hr_img=planet_img, lr_img=sentinel2_img,
+                size=(self.img_size, self.img_size),
+                hr_img_size=(self.hr_img_size, self.hr_img_size),
+                scale=(self.min_crop, 1.0)
+            )
+        else:
+            return paired_resize(
+                hr_img=planet_img, lr_img=sentinel2_img,
+                size=(self.img_size, self.img_size),
+                hr_img_size=(self.hr_img_size, self.hr_img_size)
+            )
+
+    def _resize(self, img, target_size):
+        """Apply transformation to a single image."""
+        size = to_2tuple(target_size)
+
+        if self.random_crop_resize:
+            return transforms_v2.RandomResizedCrop(size=size, scale=(self.min_crop, 1.0))(img)
+        else:
+            return transforms_v2.Resize(size=size)(img)
+
+    def _normalize(self, img, means, stds):
+        """Normalize image using provided statistics."""
+        img = (img - torch.tensor(means).view(-1, 1, 1)) / torch.tensor(stds).view(-1, 1, 1)
+        return img
+
+    def __getitem__(self, idx: int):
+        # Load images
+        planet_img = None
+        sentinel2_img = None
+
+        with h5py.File(self.hdf5_file, "r") as data_file:
+            sample_idx = self.indices[idx]
+            if self.load_both_images:
+                planet_img = torch.from_numpy(data_file["planet"][sample_idx].astype(np.float32))
+                sentinel2_img = torch.from_numpy(data_file["sentinel2"][sample_idx][:4].astype(np.float32))
+            elif self.use_hr_image:
+                planet_img = torch.from_numpy(data_file["planet"][sample_idx].astype(np.float32))
+            else:
+                sentinel2_img = torch.from_numpy(data_file["sentinel2"][sample_idx][:4].astype(np.float32))
+
+        # Resize images
+        if self.load_both_images:
+            planet_img, sentinel2_img = self._paired_resize(planet_img, sentinel2_img)
+        elif self.use_hr_image:
+            planet_img = self._resize(planet_img, self.hr_img_size)
+        else:
+            sentinel2_img = self._resize(sentinel2_img, self.img_size)
+
+        # Normalize
+        if self.normalize:
+            if planet_img is not None:
+                planet_img = self._normalize(planet_img, self.PLANET_MEANS, self.PLANET_STDS)
+            if sentinel2_img is not None:
+                sentinel2_img = self._normalize(sentinel2_img, self.SENTINEL2_MEANS, self.SENTINEL2_STDS)
+
+        if self.load_both_images:
+            return planet_img, sentinel2_img, 0
+        elif self.use_hr_image:
+            return planet_img, 0
+        else:
+            return sentinel2_img, 0
+
+
+def rapidai4eo(data_path: str, train: bool = True,
+               img_size: int = 60, hr_img_size: int = 200, use_hr_img: bool = True,
+               load_both_images: bool = False, normalize: bool = True, min_crop: float = 0.2):
+    """
+    Factory function for RapidAI4EO dataset.
+
+    Args:
+        data_path: Path to directory containing rapidai4eo.h5 and rapidai4eo_splits.json
+        train: If True, use training split; else validation
+        img_size: Size for Sentinel-2 images (default 60)
+        hr_img_size: Size for Planet images (default 200)
+        use_hr_img: If True, use Planet (HR); if False, use Sentinel-2 (LR)
+        load_both_images: If True, return both Planet and Sentinel-2
+        normalize: If True, normalize using precomputed statistics
+        min_crop: Minimum crop scale for random resized crop
+
+    Returns:
+        RapidAI4EO dataset instance
+    """
+    split = "train" if train else "val"
+    dataset = RapidAI4EO(
+        data_path=data_path,
+        split=split,
+        img_size=img_size,
+        hr_img_size=hr_img_size,
+        use_hr_image=use_hr_img,
+        load_both_images=load_both_images,
+        random_crop_resize=train,
+        min_crop=min_crop,
+        normalize=normalize,
+    )
+    return dataset
+
+
 def load_dataset(
     dataset, path, img_size=112, hr_img_size=None, use_hr_img=False, load_both_images=False, train=True, min_crop=0.2, transform=None):
     del transform
 
-    if dataset != 'sen2venus':
+    if dataset == 'sen2venus':
+        return sen2venus(
+            data_path=path,
+            train=train,
+            img_size=img_size,
+            hr_img_size=hr_img_size,
+            use_hr_img=use_hr_img,
+            load_both_images=load_both_images,
+            normalize=True,
+            min_crop=min_crop
+        )
+    elif dataset == 'rapidai4eo':
+        return rapidai4eo(
+            data_path=path,
+            train=train,
+            img_size=img_size,
+            hr_img_size=hr_img_size,
+            use_hr_img=use_hr_img,
+            load_both_images=load_both_images,
+            normalize=True,
+            min_crop=min_crop
+        )
+    else:
         raise Exception(f"The dataset {dataset} is not supported")
-
-    return sen2venus(
-        data_path=path,
-        train=train,
-        img_size=img_size,
-        hr_img_size=hr_img_size,
-        use_hr_img=use_hr_img,
-        load_both_images=load_both_images,
-        normalize=True,
-        min_crop=min_crop
-    )
 
 
 from util import misc
