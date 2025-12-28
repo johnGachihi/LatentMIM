@@ -5,12 +5,12 @@ defaults:
 
 worker: main_lmim
 output_dir: checkpoints
-job_name: sr_model_rapidai
+job_name: hr_model_rapidai
 dataset: rapidai4eo
 data_path: /home/admin/john/training_utilities
 
-use_hr_image: False
-use_hr_gram_loss: True
+use_hr_image: True
+use_hr_gram_loss: False
 hr_gram_loss_type: gram  # gram or mse
 sr_scale_factor: 2
 

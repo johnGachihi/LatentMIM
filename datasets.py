@@ -318,9 +318,9 @@ class RapidAI4EO(torch.utils.data.Dataset):
                 hr_img_size=(self.hr_img_size, self.hr_img_size)
             )
 
-    def _resize(self, img, target_size):
+    def _resize(self, img):
         """Apply transformation to a single image."""
-        size = to_2tuple(target_size)
+        size = to_2tuple(self.img_size)
 
         if self.random_crop_resize:
             return transforms_v2.RandomResizedCrop(size=size, scale=(self.min_crop, 1.0))(img)
@@ -351,9 +351,9 @@ class RapidAI4EO(torch.utils.data.Dataset):
         if self.load_both_images:
             planet_img, sentinel2_img = self._paired_resize(planet_img, sentinel2_img)
         elif self.use_hr_image:
-            planet_img = self._resize(planet_img, self.hr_img_size)
+            planet_img = self._resize(planet_img)
         else:
-            sentinel2_img = self._resize(sentinel2_img, self.img_size)
+            sentinel2_img = self._resize(sentinel2_img)
 
         # Normalize
         if self.normalize:
