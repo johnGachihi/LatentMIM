@@ -5,13 +5,13 @@ defaults:
 
 worker: main_lmim
 output_dir: checkpoints
-job_name: lr_model_s448
-dataset: sen2venus
-data_path: /home/admin/AGML_ResearchGroup/SuperResolution/sen2venus/
+job_name: sr_model_rapidai
+dataset: rapidai4eo
+data_path: /home/admin/john/training_utilities
 
 use_hr_image: False
-use_hr_gram_loss: False
-hr_gram_loss_type: mse  # gram or mse
+use_hr_gram_loss: True
+hr_gram_loss_type: gram  # gram or mse
 sr_scale_factor: 2
 
 encoder: vit_small
@@ -30,8 +30,8 @@ drop_path: 0.
 
 input_size: 224  # !not used. use grid_size instead Todo: remove
 min_crop: 0.2
-grid_size: 28
-num_vis: 40
+grid_size: 14
+num_vis: 20
 patch_gap: 4
 avg_vis_mask_token: True # initialize the mask token with postion-weighted visible
 avg_sim_coeff: 0 

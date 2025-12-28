@@ -254,12 +254,12 @@ class RapidAI4EO(torch.utils.data.Dataset):
     """
     # Normalization statistics (computed from dataset)
     # Sentinel-2: first 4 bands (B, G, R, NIR)
-    SENTINEL2_MEANS = [1370.0, 1184.0, 1120.0, 1041.0]
-    SENTINEL2_STDS = [514.0, 499.0, 566.0, 659.0]
+    SENTINEL2_MEANS = [557.5, 828.4, 900.5, 2652.0]
+    SENTINEL2_STDS = [396.1, 477.6, 665.9, 946.3]
 
     # Planet: 4 bands (BGRN)
-    PLANET_MEANS = [876.0, 994.0, 943.0, 2519.0]
-    PLANET_STDS = [523.0, 468.0, 536.0, 819.0]
+    PLANET_MEANS = [528.3, 744.1, 849.1, 2692.8]
+    PLANET_STDS = [336.2, 418.1, 607.8, 886.1]
 
     def __init__(
         self,
@@ -285,7 +285,7 @@ class RapidAI4EO(torch.utils.data.Dataset):
             min_crop: Minimum crop scale for random resized crop
             normalize: If True, normalize images using precomputed statistics
         """
-        self.hdf5_file = Path(data_path) / "rapidai4eo.h5"
+        self.hdf5_file = Path(data_path) / "rapidai4eo_v1.h5"
         self.img_size = img_size
         self.hr_img_size = hr_img_size
         self.use_hr_image = use_hr_image
