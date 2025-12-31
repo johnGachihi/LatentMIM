@@ -163,3 +163,4 @@ output_dir/
 .hydra/
 
 nohup*
+scripts

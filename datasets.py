@@ -340,7 +340,7 @@ class RapidAI4EO(torch.utils.data.Dataset):
         with h5py.File(self.hdf5_file, "r") as data_file:
             sample_idx = self.indices[idx]
             if self.load_both_images:
-                planet_img = torch.from_numpy(data_file["planet"][sample_idx].astype(np.float32))
+                planet_img = torch.from_numpy(data_file["sentinel2"][sample_idx][:4].astype(np.float32))  # todo: revert after experiment
                 sentinel2_img = torch.from_numpy(data_file["sentinel2"][sample_idx][:4].astype(np.float32))
             elif self.use_hr_image:
                 planet_img = torch.from_numpy(data_file["planet"][sample_idx].astype(np.float32))
@@ -358,7 +358,7 @@ class RapidAI4EO(torch.utils.data.Dataset):
         # Normalize
         if self.normalize:
             if planet_img is not None:
-                planet_img = self._normalize(planet_img, self.PLANET_MEANS, self.PLANET_STDS)
+                planet_img = self._normalize(planet_img, self.SENTINEL2_MEANS, self.SENTINEL2_STDS)  # todo: revert after experiment
             if sentinel2_img is not None:
                 sentinel2_img = self._normalize(sentinel2_img, self.SENTINEL2_MEANS, self.SENTINEL2_STDS)
 
