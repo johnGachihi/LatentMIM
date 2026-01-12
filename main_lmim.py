@@ -18,6 +18,7 @@ import wandb
 import timm.optim.optim_factory as optim_factory
 
 from util import misc, lr_sched
+from util.mask import RectangularPatchMaskCollator
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
 
 from models_lmim import build_lmim
@@ -97,7 +98,12 @@ def main_worker(local_rank, args):
         num_workers=args.env.workers,
         pin_memory=True,
         drop_last=True,
-        persistent_workers=True if args.env.workers > 0 else False
+        persistent_workers=True if args.env.workers > 0 else False,
+        collate_fn=RectangularPatchMaskCollator(
+            grid_size=args.grid_size,
+            min_rect_size=args.sa_block_sampling.min_rect_size,
+            max_rect_size=args.sa_block_sampling.max_rect_size
+        ) if args.sa_patch_sampling_method == 'block' else None
     )
     data_loader_eval = torch.utils.data.DataLoader(
         db_eval,
@@ -130,7 +136,8 @@ def main_worker(local_rank, args):
         in_chans=4,
         use_hr_gram_loss=args.use_hr_gram_loss,
         hr_gram_loss_type=args.hr_gram_loss_type,
-        sr_scale_factor=args.sr_scale_factor
+        sr_scale_factor=args.sr_scale_factor,
+        sa_patch_sampling_method=args.sa_patch_sampling_method or 'ssl_default'
     )
     model.to(device)
     model_without_ddp = model
@@ -235,8 +242,14 @@ def train_one_epoch(model: torch.nn.Module,
         images = images.to(device, non_blocking=True)
         if hr_images is not None:
             hr_images = hr_images.to(device, non_blocking=True)
+
+        pid_sa = None
+        if args.sa_patch_sampling_method == 'block':
+            pid_sa = batch[3].to(device, non_blocking=True)
+
         with torch.cuda.amp.autocast():
-            loss, recon_loss, gram_loss, metrics = model(images, hr_images, mom=mom, sim_trg=sim_trg, update_ema=it % accum_iter == 0)
+            loss, recon_loss, gram_loss, metrics = model(
+                images, hr_images, pid_sa=pid_sa, mom=mom, sim_trg=sim_trg, update_ema=it % accum_iter == 0)
         loss_value = loss.item()
         metric_logger.update(loss=loss_value, **metrics)
 

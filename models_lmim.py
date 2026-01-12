@@ -32,7 +32,8 @@ class LMIM(nn.Module):
                  tau=0.2, num_vis=20, avg_vis_mask_token=True,
                  avg_sim_coeff=0., mask_target=True,
                  loss='infonce_patches', freeze_pe=None, proj_cfg=None,
-                 use_hr_gram_loss=False, hr_gram_loss_type="gram", sr_scale_factor=2):
+                 use_hr_gram_loss=False, hr_gram_loss_type="gram", sr_scale_factor=2,
+                 sa_patch_sampling_method='ssl_default'):
         super().__init__()
 
         self.loss = loss
@@ -44,6 +45,9 @@ class LMIM(nn.Module):
         self.hr_gram_loss_type = hr_gram_loss_type
         self.sr_scale_factor = sr_scale_factor
         self.grid_size = grid_size
+
+        assert sa_patch_sampling_method in ['ssl_default', 'block']
+        self.sa_patch_sampling_method = sa_patch_sampling_method
 
         self.patchify = Patchify(patch_size=patch_size, grid_size=grid_size, in_chans=in_chans)
         self.hr_patchify = Patchify(patch_size=patch_size, grid_size=grid_size*sr_scale_factor, in_chans=in_chans)
@@ -224,19 +228,31 @@ class LMIM(nn.Module):
         else:
             raise ValueError('hr_gram_loss_type can only be "gram" or "mse"')
 
-    def forward(self, imgs, hr_img=None, mom=0.99, sim_trg=0.75, update_ema=False):
+    def forward(self, imgs, hr_img=None, pid_sa=None, mom=0.99, sim_trg=0.75, update_ema=False):
         # Image to patches
         patch_pix = self.patchify(imgs, self.patch_gap)
 
         # Create two views by masking
         pix_vis, pid_vis, pix_trg, pid_trg, mask_idx = self.create_views(patch_pix)
 
-        # Get HR vis pix
+        # Get (LR) spatial affinity patches
+        if self.sa_patch_sampling_method == 'block':
+            _, _, D = patch_pix.shape
+            pix_sa = patch_pix.gather(dim=1, index=pid_sa[:, :, None].repeat(1, 1, D))
+
+        # Get HR spatial affinity patches
         if self.use_hr_gram_loss:
             hr_patch_pix = self.hr_patchify(hr_img, self.patch_gap)
-            hr_pid_vis = self.scale_masks(pid_vis)
+
+            if self.sa_patch_sampling_method == 'block':
+                hr_pid_sa = self.scale_masks(pid_sa)
+            elif self.sa_patch_sampling_method == 'ssl_default':
+                hr_pid_sa = self.scale_masks(pid_vis)
+            else:
+                raise Exception()
+
             _, _, D = hr_patch_pix.shape
-            hr_pix_vis = hr_patch_pix.gather(dim=1, index=hr_pid_vis[:, :, None].repeat(1, 1, D))
+            hr_pix_sa = hr_patch_pix.gather(dim=1, index=hr_pid_sa[:, :, None].repeat(1, 1, D))
 
         # Compute targets
         with torch.no_grad():
@@ -250,11 +266,18 @@ class LMIM(nn.Module):
 
             # Compute hr_gram targets
             if self.use_hr_gram_loss:
-                num_vis_hr_tokens = hr_pid_vis.shape[-1]
-                hr_gram_trg = self.hr_gram_teacher(hr_pix_vis, hr_pid_vis)[:, -num_vis_hr_tokens:]
+                num_hr_sa_tokens = hr_pid_sa.shape[-1]
+                x_sa_trg = self.hr_gram_teacher(hr_pix_sa, hr_pid_sa)[:, -num_hr_sa_tokens:]
 
         # Forward encoder
         x_vis = self.encoder(pix_vis, pid_vis)
+        if self.sa_patch_sampling_method == 'block':
+            # Additional forward pass for spatial affinity component patches
+            x_sa = self.encoder(pix_sa, pid_sa)
+        elif self.sa_patch_sampling_method == 'ssl_default':
+            x_sa = x_vis
+        else:
+            raise Exception()
 
         # Forward decoder
         x_pred = self.decoder(x_vis, pid_vis, mask_pid=mask_idx)[:, 1:]
@@ -268,7 +291,7 @@ class LMIM(nn.Module):
 
         gram_loss = None
         if self.use_hr_gram_loss:
-            gram_loss = self.forward_hr_gram_loss(x_vis[:, 1:], hr_gram_trg)
+            gram_loss = self.forward_hr_gram_loss(x_sa[:, 1:], x_sa_trg)
             loss = recon_loss + gram_loss
         else:
             loss = recon_loss
@@ -303,7 +326,8 @@ CFG = {
 
 def build_lmim(
     backbone, decoder_depth=3, decoder_embed_dim=512, decoder_num_heads=16,
-    in_chans=3, use_hr_gram_loss=False, hr_gram_loss_type='gram', sr_scale_factor=2, **kwargs
+    in_chans=3, use_hr_gram_loss=False, hr_gram_loss_type='gram', sr_scale_factor=2,
+    sa_patch_sampling_method='ssl_default', **kwargs
 ):
     cfg = CFG[backbone]
     model = LMIM(
@@ -311,5 +335,5 @@ def build_lmim(
         num_heads=cfg['num_heads'], decoder_embed_dim=decoder_embed_dim, decoder_depth=decoder_depth,
         decoder_num_heads=decoder_num_heads, mlp_ratio=cfg['mlp_ratio'], use_hr_gram_loss=use_hr_gram_loss,
         hr_gram_loss_type=hr_gram_loss_type, sr_scale_factor=sr_scale_factor,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+        sa_patch_sampling_method=sa_patch_sampling_method, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
     return model

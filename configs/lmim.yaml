@@ -5,7 +5,7 @@ defaults:
 
 worker: main_lmim
 output_dir: checkpoints
-job_name: sr_model_rapidai_no_gsd_diff
+job_name: sr_model_rapidai_block_sampling
 dataset: rapidai4eo
 data_path: /home/admin/john/training_utilities
 
@@ -13,6 +13,12 @@ use_hr_image: False
 use_hr_gram_loss: True
 hr_gram_loss_type: gram  # gram or mse
 sr_scale_factor: 2
+
+# spatial affinity sampling
+sa_patch_sampling_method: block  # ssl_default or block
+sa_block_sampling:
+  min_rect_size: 0.4
+  max_rect_size: 0.7
 
 encoder: vit_small
 patch_size: 16
@@ -47,7 +53,7 @@ proj:
 epochs: 300
 warmup_epochs: 30
 start_epoch: 0
-batch_size: 128  # 62
+batch_size: 128  # 128
 weight_decay: 0.05
 blr: 1.5e-4
 accum_iter: 4
