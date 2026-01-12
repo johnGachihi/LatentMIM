@@ -5,8 +5,8 @@ defaults:
 
 worker: eval_linear_probe
 output_dir: checkpoints/eval
-job_name: eval_linear_probe_mados_sr_model_lr_bilinear_resized_ep300_3
-pretrain_job_name: # Set to the pretrain job name to load checkpoint from
+job_name: eval_linear_probe_mados_sr_model_block_sampling_ep300_run3
+pretrain_job_name: # Set to the pretrain job name to load from
 
 # Dataset
 dataset: mados
@@ -23,7 +23,7 @@ use_batchnorm: False
 eval_mode: linear_probe  # or 'finetune'
 
 # Checkpoint
-pretrained_checkpoint: /home/admin/john/LatentMIM/checkpoints/lr_model_with_bilinear_resizing/checkpoints/checkpoint_0300.pth # ${output_dir}/${pretrain_job_name}/checkpoints/checkpoint_latest.pth
+pretrained_checkpoint: /home/admin/john/LatentMIM/checkpoints/sr_model_rapidai_block_sampling/checkpoints/checkpoint_0300.pth # ${output_dir}/${pretrain_job_name}/checkpoints/checkpoint_latest.pth
 resume: False
 
 # Training
