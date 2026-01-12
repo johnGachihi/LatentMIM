@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 from functools import partial
 
-from timm.models.layers import to_2tuple, Mlp, DropPath
+from timm.layers import to_2tuple, Mlp, DropPath
 
 class CrossPositionAttentionStem(nn.Module):
     """ Positional-weighted Vision Cues as Part of the Mask Token"""

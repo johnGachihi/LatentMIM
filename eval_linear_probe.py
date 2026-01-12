@@ -2,7 +2,7 @@
 """
 Linear probing evaluation script for LatentMIM.
 Evaluates learned representations on semantic segmentation tasks.
-Supports: MADOS, m-cashew-plantation, and m-SA-crop-type datasets.
+Supports: MADOS, m-cashew-plantation, m-SA-crop-type, and Substation datasets.
 """
 
 import os
@@ -203,8 +203,32 @@ def main_worker(local_rank, args):
             band_names=args.band_names,
             img_size=args.img_size
         )
+    elif args.dataset == 'substation':
+        train_dataset = datasets.substation(
+            data_path=args.data_path,
+            split='train',
+            img_size=args.img_size,
+            normalize=True,
+            filter_bands=args.filter_bands
+        )
+
+        val_dataset = datasets.substation(
+            data_path=args.data_path,
+            split='val',
+            img_size=args.img_size,
+            normalize=True,
+            filter_bands=args.filter_bands
+        )
+
+        test_dataset = datasets.substation(
+            data_path=args.data_path,
+            split='test',
+            img_size=args.img_size,
+            normalize=True,
+            filter_bands=args.filter_bands
+        )
     else:
-        raise ValueError(f"Unsupported dataset: {args.dataset}. Must be one of: mados, m-cashew-plantation, m-sa-crop-type")
+        raise ValueError(f"Unsupported dataset: {args.dataset}. Must be one of: mados, m-cashew-plantation, m-sa-crop-type, substation")
 
     print(f"Train samples: {len(train_dataset)}")
     print(f"Val samples: {len(val_dataset)}")

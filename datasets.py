@@ -17,7 +17,7 @@ from util.transforms import (
     resize_img_and_mask
 )
 
-__all__ = ['imagenet', 'imagenet100', 'sen2venus', 'rapidai4eo', 'mados', 'm_cashew_plantation', 'm_sa_crop_type']
+__all__ = ['imagenet', 'imagenet100', 'sen2venus', 'rapidai4eo', 'mados', 'm_cashew_plantation', 'm_sa_crop_type', 'substation']
 
 
 NUM_CLASSES = {
@@ -188,7 +188,7 @@ class Sen2Venus(torch.utils.data.Dataset):
         with h5py.File(self.hdf5_file, "r") as data_file:
             sample_idx = self.indices[idx]
             if self.load_both_images:
-                venus_img = torch.from_numpy(data_file["sentinel2"][sample_idx])
+                venus_img = torch.from_numpy(data_file["venus"][sample_idx])
                 sentinel2_img = torch.from_numpy(data_file["sentinel2"][sample_idx])
             elif self.use_hr_image:
                 venus_img = torch.from_numpy(data_file["venus"][sample_idx])
@@ -211,7 +211,7 @@ class Sen2Venus(torch.utils.data.Dataset):
         # -- normalize
         if self.normalize:
             if venus_img is not None:
-                venus_img = self._normalize(venus_img, self.SENTINEL2_MEANS, self.SENTINEL2_STDS)  # TODO!: Revert after experiment
+                venus_img = self._normalize(venus_img, self.VENUS_MEANS, self.VENUS_STDS)
             if sentinel2_img is not None:
                 sentinel2_img = self._normalize(sentinel2_img, self.SENTINEL2_MEANS, self.SENTINEL2_STDS)
 
@@ -340,7 +340,7 @@ class RapidAI4EO(torch.utils.data.Dataset):
         with h5py.File(self.hdf5_file, "r") as data_file:
             sample_idx = self.indices[idx]
             if self.load_both_images:
-                planet_img = torch.from_numpy(data_file["sentinel2"][sample_idx][:4].astype(np.float32))  # todo: revert after experiment
+                planet_img = torch.from_numpy(data_file["planet"][sample_idx].astype(np.float32))
                 sentinel2_img = torch.from_numpy(data_file["sentinel2"][sample_idx][:4].astype(np.float32))
             elif self.use_hr_image:
                 planet_img = torch.from_numpy(data_file["planet"][sample_idx].astype(np.float32))
@@ -358,7 +358,7 @@ class RapidAI4EO(torch.utils.data.Dataset):
         # Normalize
         if self.normalize:
             if planet_img is not None:
-                planet_img = self._normalize(planet_img, self.SENTINEL2_MEANS, self.SENTINEL2_STDS)  # todo: revert after experiment
+                planet_img = self._normalize(planet_img, self.PLANET_MEANS, self.PLANET_STDS)
             if sentinel2_img is not None:
                 sentinel2_img = self._normalize(sentinel2_img, self.SENTINEL2_MEANS, self.SENTINEL2_STDS)
 
@@ -817,4 +817,198 @@ def m_sa_crop_type(
         img_size=img_size
     )
 
+    return dataset
+
+
+class SubstationDataset(data.Dataset):
+    """
+    Substation dataset for semantic segmentation of power substations.
+    Wraps torchgeo.datasets.Substation for use in evaluation pipelines.
+
+    The dataset contains multi-temporal, multi-spectral Sentinel-2 images
+    paired with binary segmentation masks identifying power substations.
+
+    Dataset info:
+        - 26,522 image-mask pairs
+        - 13 Sentinel-2 spectral bands
+        - 228x228 pixel spatial resolution
+        - Binary segmentation masks (0: background, 1: substation)
+    """
+
+    # Sentinel-2 band names (13 bands)
+    BAND_NAMES = [
+        'B1 (Coastal)',       # 0
+        'B2 (Blue)',          # 1
+        'B3 (Green)',         # 2
+        'B4 (Red)',           # 3
+        'B5 (Veg Red Edge)',  # 4
+        'B6 (Veg Red Edge)',  # 5
+        'B7 (Veg Red Edge)',  # 6
+        'B8 (NIR)',           # 7
+        'B8A (Veg Red Edge)', # 8
+        'B9 (Water Vapour)',  # 9
+        'B10 (Cirrus)',       # 10
+        'B11 (SWIR)',         # 11
+        'B12 (SWIR)',         # 12
+    ]
+
+    # Normalization statistics computed from full dataset (all 13 bands)
+    # Values are in Sentinel-2 Digital Numbers (DN)
+    MEANS = [
+        279.728026, 389.843895, 451.818972, 676.614939, 601.574662, 620.864345, 782.023286, 793.588283, 862.367337, 330.107227, 25.913497, 849.386047, 825.92469
+
+    ]
+    STDS = [
+        279.728026, 389.843895, 451.818972, 676.614939, 601.574662, 620.864345, 782.023286, 793.588283, 862.367337, 330.107227, 25.913497, 849.386047, 825.92469
+
+    ]
+
+    # Default bands: Blue, Green, Red, NIR (indices 1, 2, 3, 7)
+    DEFAULT_BANDS = [1, 2, 3, 7]
+
+    def __init__(
+        self,
+        data_path: str,
+        split: str = "train",
+        img_size: int = 224,
+        normalize: bool = True,
+        filter_bands: list = None,
+        splits_file: str = "substation_meta_splits_geobench.csv",
+        timepoint_aggregation: str = 'median',
+    ):
+        """
+        Args:
+            data_path: Path to directory where Substation data is stored
+            split: Which split to use ('train', 'val', or 'test')
+            img_size: Size to resize images to
+            normalize: If True, normalize images using precomputed statistics
+            filter_bands: List of band indices to use (default: [1, 2, 3, 7] for BGR+NIR)
+            splits_file: Name of CSV file containing train/val/test splits
+            timepoint_aggregation: How to aggregate multiple timepoints ('median', 'first', 'random', 'concat')
+        """
+        import pandas as pd
+        from torchgeo.datasets.substation import Substation as TorchGeoSubstation
+
+        self.split = split
+        self.img_size = to_2tuple(img_size)
+        self.normalize = normalize
+        self.filter_bands = filter_bands if filter_bands is not None else self.DEFAULT_BANDS
+
+        assert split in ["train", "val", "test"], \
+            f"Invalid split: {split}. Must be one of ['train', 'val', 'test']"
+
+        # Load the torchgeo Substation dataset
+        self.torchgeo_dataset = TorchGeoSubstation(
+            root=data_path,
+            bands=tuple(range(13)),  # Load all 13 bands
+            mask_2d=False,
+            num_of_timepoints=4,
+            timepoint_aggregation=timepoint_aggregation,
+            download=True,
+            checksum=False
+        )
+
+        # Load splits from CSV file
+        splits_path = os.path.join(data_path, splits_file)
+        df = pd.read_csv(splits_path)
+
+        # Filter by split and get indices
+        split_df = df[df['split'] == split]
+        self.indices = split_df['id'].tolist()
+
+        print(f"Loaded Substation {split} set: {len(self.indices)} samples")
+
+        # Prepare normalization statistics for selected bands
+        self.band_means = torch.tensor([self.MEANS[i] for i in self.filter_bands]).view(-1, 1, 1)
+        self.band_stds = torch.tensor([self.STDS[i] for i in self.filter_bands]).view(-1, 1, 1)
+
+    def __len__(self):
+        return len(self.indices)
+
+    def _normalize_bands(self, image):
+        """Normalize image bands using precomputed mean and std."""
+        return (image - self.band_means) / self.band_stds
+
+    def _resize_img_and_mask(self, img, mask):
+        """Resize image and mask with proper interpolation modes."""
+        if self.split == "train":
+            # Random crop and resize for training
+            return random_crop_resize_img_and_mask(
+                img, mask, self.img_size, scale=(0.3, 1.0), ratio=(3/4, 4/3)
+            )
+        else:
+            # Just resize for val/test
+            return resize_img_and_mask(img, mask, self.img_size)
+
+    def __getitem__(self, idx):
+        # Get sample from torchgeo dataset using the split index
+        sample_idx = self.indices[idx]
+        sample = self.torchgeo_dataset[sample_idx]
+
+        image = sample['image']  # (C, H, W)
+        mask = sample['mask']    # (H, W)
+
+        # Filter to selected bands
+        image = image[self.filter_bands, :, :]
+
+        # Handle NaN pixels
+        nan_mask = torch.isnan(image).any(dim=0)
+        image = torch.where(torch.isnan(image), torch.tensor(0.0), image)
+
+        # Convert mask to long and handle NaN regions
+        mask = mask.long()
+        mask = torch.where(nan_mask, torch.tensor(-1, dtype=torch.long), mask)
+
+        # Add channel dim to mask for resize operations
+        mask = mask.unsqueeze(0)  # (1, H, W)
+
+        # Normalize before resize (to maintain consistent statistics)
+        if self.normalize:
+            image = self._normalize_bands(image)
+
+        # Convert to float for resize operations
+        image = image.float()
+
+        # Resize image and mask
+        image, mask = self._resize_img_and_mask(image, mask)
+
+        # Ensure mask is long type after resize
+        mask = mask.long()
+
+        return image, mask
+
+
+def substation(
+    data_path: str,
+    split: str = "train",
+    img_size: int = 224,
+    normalize: bool = True,
+    filter_bands: list = None,
+    splits_file: str = "substation_meta_splits_geobench.csv",
+    timepoint_aggregation: str = 'median',
+):
+    """
+    Create Substation dataset for evaluation.
+
+    Args:
+        data_path: Path to directory where Substation data is stored/downloaded
+        split: Which split to use ('train', 'val', or 'test')
+        img_size: Size to resize images to
+        normalize: If True, normalize images using precomputed statistics
+        filter_bands: List of band indices to use (default: [1, 2, 3, 7] for BGR+NIR)
+        splits_file: Name of CSV file containing train/val/test splits
+        timepoint_aggregation: How to aggregate multiple timepoints ('median', 'first', 'random', 'concat')
+
+    Returns:
+        SubstationDataset instance
+    """
+    dataset = SubstationDataset(
+        data_path=data_path,
+        split=split,
+        img_size=img_size,
+        normalize=normalize,
+        filter_bands=filter_bands,
+        splits_file=splits_file,
+        timepoint_aggregation=timepoint_aggregation,
+    )
     return dataset
