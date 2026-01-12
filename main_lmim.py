@@ -70,7 +70,7 @@ def main_worker(local_rank, args):
     db_train = datasets.load_dataset(
         args.dataset, args.data_path, img_size=train_img_size, train=True,
         use_hr_img=args.use_hr_image, load_both_images=args.use_hr_gram_loss,
-        hr_img_size=train_hr_img_size)
+        hr_img_size=train_hr_img_size, no_gsd_diff=args.hr_gram_no_gsd_diff)
     
     eval_img_size = args.grid_size * args.patch_size
     db_eval = datasets.load_dataset(

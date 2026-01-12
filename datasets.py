@@ -272,6 +272,7 @@ class RapidAI4EO(torch.utils.data.Dataset):
         random_crop_resize: bool = True,
         min_crop: float = 0.2,
         normalize: bool = True,
+        no_gsd_diff: bool = False
     ):
         """
         Args:
@@ -293,6 +294,7 @@ class RapidAI4EO(torch.utils.data.Dataset):
         self.random_crop_resize = random_crop_resize
         self.min_crop = min_crop
         self.normalize = normalize
+        self.no_gsd_diff = no_gsd_diff
 
         # Load split indices from JSON file
         splits_file = Path(data_path) / "rapidai4eo_splits.json"
@@ -340,7 +342,11 @@ class RapidAI4EO(torch.utils.data.Dataset):
         with h5py.File(self.hdf5_file, "r") as data_file:
             sample_idx = self.indices[idx]
             if self.load_both_images:
-                planet_img = torch.from_numpy(data_file["planet"][sample_idx].astype(np.float32))
+                if self.no_gsd_diff:  # !Usually not true. For a certain experiment only
+                    planet_img = torch.from_numpy(data_file["sentinel2"][sample_idx][:4].astype(np.float32))
+                else:
+                    planet_img = torch.from_numpy(data_file["planet"][sample_idx].astype(np.float32))
+                  
                 sentinel2_img = torch.from_numpy(data_file["sentinel2"][sample_idx][:4].astype(np.float32))
             elif self.use_hr_image:
                 planet_img = torch.from_numpy(data_file["planet"][sample_idx].astype(np.float32))
@@ -358,7 +364,10 @@ class RapidAI4EO(torch.utils.data.Dataset):
         # Normalize
         if self.normalize:
             if planet_img is not None:
-                planet_img = self._normalize(planet_img, self.PLANET_MEANS, self.PLANET_STDS)
+                if self.no_gsd_diff:  # !Usually not true. For a certain experiment only
+                    planet_img = self._normalize(planet_img, self.SENTINEL2_MEANS, self.SENTINEL2_STDS)
+                else:
+                    planet_img = self._normalize(planet_img, self.PLANET_MEANS, self.PLANET_STDS)
             if sentinel2_img is not None:
                 sentinel2_img = self._normalize(sentinel2_img, self.SENTINEL2_MEANS, self.SENTINEL2_STDS)
 
@@ -372,7 +381,8 @@ class RapidAI4EO(torch.utils.data.Dataset):
 
 def rapidai4eo(data_path: str, train: bool = True,
                img_size: int = 60, hr_img_size: int = 200, use_hr_img: bool = True,
-               load_both_images: bool = False, normalize: bool = True, min_crop: float = 0.2):
+               load_both_images: bool = False, normalize: bool = True, min_crop: float = 0.2,
+               no_gsd_diff: bool = False):
     """
     Factory function for RapidAI4EO dataset.
 
@@ -400,12 +410,14 @@ def rapidai4eo(data_path: str, train: bool = True,
         random_crop_resize=train,
         min_crop=min_crop,
         normalize=normalize,
+        no_gsd_diff=no_gsd_diff
     )
     return dataset
 
 
-def load_dataset(
-    dataset, path, img_size=112, hr_img_size=None, use_hr_img=False, load_both_images=False, train=True, min_crop=0.2, transform=None):
+def load_dataset(dataset, path, img_size=112, hr_img_size=None,
+                 use_hr_img=False, load_both_images=False, train=True,
+                 min_crop=0.2, no_gsd_diff=False, transform=None):
     del transform
 
     if dataset == 'sen2venus':
@@ -428,7 +440,8 @@ def load_dataset(
             use_hr_img=use_hr_img,
             load_both_images=load_both_images,
             normalize=True,
-            min_crop=min_crop
+            min_crop=min_crop,
+            no_gsd_diff=no_gsd_diff
         )
     else:
         raise Exception(f"The dataset {dataset} is not supported")
