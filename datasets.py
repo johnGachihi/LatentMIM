@@ -123,6 +123,7 @@ class Sen2Venus(torch.utils.data.Dataset):
         random_crop_resize: bool = True,
         min_crop = 0.2,
         normalize: bool = True,
+        no_gsd_diff: bool = False
     ):
         """
         Args:
@@ -144,6 +145,7 @@ class Sen2Venus(torch.utils.data.Dataset):
         self.random_crop_resize = random_crop_resize
         self.min_crop = min_crop
         self.normalize = normalize
+        self.no_gsd_diff = no_gsd_diff
 
         # Load split indices from JSON file
         splits_file = Path(data_path) / "splits_v1.json"
@@ -188,7 +190,11 @@ class Sen2Venus(torch.utils.data.Dataset):
         with h5py.File(self.hdf5_file, "r") as data_file:
             sample_idx = self.indices[idx]
             if self.load_both_images:
-                venus_img = torch.from_numpy(data_file["venus"][sample_idx])
+                if self.no_gsd_diff:
+                    venus_img = torch.from_numpy(data_file["sentinel2"][sample_idx])
+                else:
+                    venus_img = torch.from_numpy(data_file["venus"][sample_idx])
+
                 sentinel2_img = torch.from_numpy(data_file["sentinel2"][sample_idx])
             elif self.use_hr_image:
                 venus_img = torch.from_numpy(data_file["venus"][sample_idx])
@@ -211,7 +217,11 @@ class Sen2Venus(torch.utils.data.Dataset):
         # -- normalize
         if self.normalize:
             if venus_img is not None:
-                venus_img = self._normalize(venus_img, self.VENUS_MEANS, self.VENUS_STDS)
+                if self.no_gsd_diff:
+                    venus_img = self._normalize(venus_img, self.SENTINEL2_MEANS, self.SENTINEL2_STDS)
+                else:
+                    venus_img = self._normalize(venus_img, self.VENUS_MEANS, self.VENUS_STDS)
+
             if sentinel2_img is not None:
                 sentinel2_img = self._normalize(sentinel2_img, self.SENTINEL2_MEANS, self.SENTINEL2_STDS)
 
@@ -225,7 +235,7 @@ class Sen2Venus(torch.utils.data.Dataset):
 
 def sen2venus(data_path: str, train: bool = True,
               img_size: int = 256, hr_img_size: int = None, use_hr_img: bool = True,
-              load_both_images: bool = False, normalize: bool = True, min_crop=0.2):
+              load_both_images: bool = False, normalize: bool = True, min_crop=0.2, no_gsd_diff=False):
     split = "train" if train else "val"
     dataset = Sen2Venus(
         data_path=data_path,
@@ -237,6 +247,7 @@ def sen2venus(data_path: str, train: bool = True,
         random_crop_resize=train,  # Apply random crop/resize only during training
         min_crop=min_crop,
         normalize=normalize,
+        no_gsd_diff=no_gsd_diff
     )
     return dataset
 
@@ -429,7 +440,8 @@ def load_dataset(dataset, path, img_size=112, hr_img_size=None,
             use_hr_img=use_hr_img,
             load_both_images=load_both_images,
             normalize=True,
-            min_crop=min_crop
+            min_crop=min_crop,
+            no_gsd_diff=no_gsd_diff
         )
     elif dataset == 'rapidai4eo':
         return rapidai4eo(

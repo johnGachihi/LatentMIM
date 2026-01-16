@@ -5,7 +5,7 @@ defaults:
 
 worker: main_lmim
 output_dir: checkpoints
-job_name: sr_model_sen2venus_block_sampling
+job_name: sr_model_sen2venus_block_sampling_no_gsd_diff
 dataset: sen2venus  # rapidai4eo or sen2venus
 data_path: /home/admin/AGML_ResearchGroup/SuperResolution/sen2venus/  # /home/admin/john/training_utilities
 
@@ -13,7 +13,7 @@ use_hr_image: False
 use_hr_gram_loss: True
 hr_gram_loss_type: gram  # gram or mse
 sr_scale_factor: 2
-hr_gram_no_gsd_diff: false  # !should be false
+hr_gram_no_gsd_diff: true  # !should be false
 
 # spatial affinity sampling
 sa_patch_sampling_method: block  # ssl_default or block
