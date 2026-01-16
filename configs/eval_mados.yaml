@@ -5,7 +5,7 @@ defaults:
 
 worker: eval_linear_probe
 output_dir: checkpoints/eval
-job_name: eval_linear_probe_mados_sr_model_block_sampling_ep300_run3
+job_name: eval_linear_probe_mados_rapidai_sr_model_block_sampling_ep300_run4
 pretrain_job_name: # Set to the pretrain job name to load from
 
 # Dataset
@@ -23,8 +23,9 @@ use_batchnorm: False
 eval_mode: linear_probe  # or 'finetune'
 
 # Checkpoint
-pretrained_checkpoint: /home/admin/john/LatentMIM/checkpoints/sr_model_rapidai_block_sampling/checkpoints/checkpoint_0300.pth # ${output_dir}/${pretrain_job_name}/checkpoints/checkpoint_latest.pth
+pretrained_checkpoint: /home/admin/john/LatentMIM/checkpoints/sr_model_rapidai_block_sampling/checkpoints/checkpoint_0300.pth
 resume: False
+checkpoint_metric: miou  # 'miou' or 'loss' - metric used to select best checkpoint for test
 
 # Training
 epochs: 100

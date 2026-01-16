@@ -387,6 +387,7 @@ def main_worker(local_rank, args):
     # Resume from checkpoint
     start_epoch = 0
     best_val_miou = 0.0
+    best_val_loss = float('inf')
     if args.resume:
         start_epoch = ckpt_manager.resume()
 
@@ -411,21 +412,31 @@ def main_worker(local_rank, args):
         # Validate
         val_stats = validate(encoder, seg_head, val_loader, device, args)
 
-        # Save checkpoint
-        is_best = val_stats['miou'] > best_val_miou
-        if is_best:
+        # Determine if this is the best checkpoint based on configured metric
+        checkpoint_metric = getattr(args, 'checkpoint_metric', 'miou')
+        if checkpoint_metric == 'loss':
+            is_best = val_stats['loss'] < best_val_loss
+        else:  # default to miou
+            is_best = val_stats['miou'] > best_val_miou
+
+        # Update best values
+        if val_stats['miou'] > best_val_miou:
             best_val_miou = val_stats['miou']
+        if val_stats['loss'] < best_val_loss:
+            best_val_loss = val_stats['loss']
 
         ckpt_manager.checkpoint(epoch + 1, {
             'epoch': epoch + 1,
-            'best_val_miou': best_val_miou
+            'best_val_miou': best_val_miou,
+            'best_val_loss': best_val_loss
         })
 
         # Save best checkpoint separately
         if is_best and misc.is_main_process():
             ckpt_manager.checkpoint_v2('best', {
                 'epoch': epoch + 1,
-                'best_val_miou': best_val_miou
+                'best_val_miou': best_val_miou,
+                'best_val_loss': best_val_loss
             })
 
         # Logging
@@ -433,7 +444,8 @@ def main_worker(local_rank, args):
             **{f'train_{k}': v for k, v in train_stats.items()},
             **{f'val_{k}': v for k, v in val_stats.items()},
             'epoch': epoch,
-            'best_val_miou': best_val_miou
+            'best_val_miou': best_val_miou,
+            'best_val_loss': best_val_loss
         }
 
         if misc.is_main_process():
@@ -451,7 +463,11 @@ def main_worker(local_rank, args):
     if os.path.exists(best_ckpt_path):
         checkpoint = torch.load(best_ckpt_path, map_location='cpu')
         ckpt_manager.load_state_dict(checkpoint)
-        print(f"Loaded best checkpoint for testing (val mIoU: {checkpoint['best_val_miou']:.4f})")
+        checkpoint_metric = getattr(args, 'checkpoint_metric', 'miou')
+        if checkpoint_metric == 'loss':
+            print(f"Loaded best checkpoint for testing (selected by val loss: {checkpoint.get('best_val_loss', 'N/A')})")
+        else:
+            print(f"Loaded best checkpoint for testing (selected by val mIoU: {checkpoint['best_val_miou']:.4f})")
 
     test_stats = validate(encoder, seg_head, test_loader, device, args)
     print(f"Test results - Loss: {test_stats['loss']:.4f}, mIoU: {test_stats['miou']:.4f}")
