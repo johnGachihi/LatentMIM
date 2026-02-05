@@ -209,23 +209,20 @@ def main_worker(local_rank, args):
             split='train',
             img_size=args.img_size,
             normalize=True,
-            filter_bands=args.filter_bands
         )
 
         val_dataset = datasets.substation(
             data_path=args.data_path,
             split='val',
             img_size=args.img_size,
-            normalize=True,
-            filter_bands=args.filter_bands
+            normalize=True
         )
 
         test_dataset = datasets.substation(
             data_path=args.data_path,
             split='test',
             img_size=args.img_size,
-            normalize=True,
-            filter_bands=args.filter_bands
+            normalize=True
         )
     else:
         raise ValueError(f"Unsupported dataset: {args.dataset}. Must be one of: mados, m-cashew-plantation, m-sa-crop-type, substation")
@@ -278,9 +275,9 @@ def main_worker(local_rank, args):
     )
 
     # Get number of input channels from dataset
-    sample_img, _ = train_dataset[0]
-    in_chans = sample_img.shape[0]
-    print(f"Input channels: {in_chans}")
+    # sample_img, _ = train_dataset[0]
+    in_chans = 4  # sample_img.shape[0]
+    # print(f"Input channels: {in_chans}")
 
     # Build encoder
     encoder = build_vit(
