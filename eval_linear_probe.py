@@ -18,7 +18,7 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel
-from torchmetrics.functional.classification import multiclass_jaccard_index
+from torchmetrics.functional.classification import multiclass_jaccard_index, binary_jaccard_index
 import wandb
 
 import timm.optim.optim_factory as optim_factory
@@ -509,11 +509,19 @@ def train_one_epoch(encoder, seg_head, data_loader, optimizer, device, epoch, lo
             logits = seg_head(features[:, 1:], target_size)  # [B, num_classes, H, W]
 
             # Compute loss
-            loss = F.cross_entropy(
-                logits.permute(0, 2, 3, 1).reshape(-1, logits.shape[1]),
-                masks.reshape(-1),
-                ignore_index=-1
-            )
+            if args.dataset == 'substation':
+                loss = F.cross_entropy(
+                    logits.permute(0, 2, 3, 1).reshape(-1, logits.shape[1]),
+                    masks.reshape(-1),
+                    ignore_index=-1,
+                    weight=torch.tensor([1.0, 3.0], device=logits.device)
+                )
+            else:
+                loss = F.cross_entropy(
+                    logits.permute(0, 2, 3, 1).reshape(-1, logits.shape[1]),
+                    masks.reshape(-1),
+                    ignore_index=-1
+                )
 
             # Compute mIoU
             miou = multiclass_jaccard_index(
@@ -581,8 +589,17 @@ def validate(encoder, seg_head, data_loader, device, args):
                 ignore_index=-1
             )
 
+            if args.dataset == "substation":
+                iou = binary_jaccard_index(
+                    logits.permute(0, 2, 3, 1).reshape(-1, logits.shape[1]).argmax(dim=1),
+                    masks.reshape(-1),
+                    ignore_index=-1
+                )
+
         metric_logger.update(loss=loss.item())
         metric_logger.update(miou=miou.item())
+        if args.dataset == "substation":
+            metric_logger.update(iou=iou)
 
     # Gather stats
     metric_logger.synchronize_between_processes()
