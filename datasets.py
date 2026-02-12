@@ -21,7 +21,7 @@ from util.transforms import (
 from util import misc
 
 __all__ = ['imagenet', 'imagenet100', 'sen2venus', 'rapidai4eo', 'mados', 'm_cashew_plantation', 'm_sa_crop_type',
-           'substation']
+           'substation', 'tinywt']
 
 NUM_CLASSES = {
   'imagenet': 1000,
@@ -865,9 +865,9 @@ def m_sa_crop_type(
 class SubstationHDF5Dataset(data.Dataset):
   BANDS = [1, 2, 3, 7]
   MEANS = torch.tensor([1431, 1233, 1209, 1192, 1448, 2238, 2609,
-           2537, 2828, 884, 20, 2226, 1537])[BANDS]
+                        2537, 2828, 884, 20, 2226, 1537])[BANDS]
   STDS = torch.tensor([157, 254, 290, 420, 363, 457, 575,
-          606, 630, 156, 3, 554, 523])[BANDS]
+                       606, 630, 156, 3, 554, 523])[BANDS]
 
   def __init__(
       self,
@@ -954,6 +954,98 @@ def substation(
     splits_file: str = "splits.json",
 ):
   return SubstationHDF5Dataset(
+    data_path=data_path,
+    split=split,
+    img_size=img_size,
+    normalize=normalize,
+    h5_file=h5_file,
+    splits_file=splits_file
+  )
+
+
+class TinyWTDataset(data.Dataset):
+  
+  MEANS = [0.3505007114314688, 0.2842650830139209, 0.20763643013794064]
+  STDS = [0.18235853725900442, 0.13169950027989888, 0.10755520758402362]
+
+  def __init__(
+      self,
+      data_path: str,
+      split: str = 'train',
+      img_size: int = 250,
+      normalize: bool = True,
+      h5_file: str = 'tinywt.h5',
+      splits_file: str = 'splits.json'
+  ):
+    self.h5_path = Path(data_path) / h5_file
+    self.split = split
+    self.img_size = to_2tuple(img_size)
+    self.normalize = normalize
+
+    assert split in ["train", "val", "test"], \
+      f"Invalid split: {split}. Must be one of ['train', 'val', 'test']"
+
+    splits_file = Path(data_path) / splits_file
+    with open(splits_file, 'r') as f:
+      self.indices = json.load(f)[split]
+
+    print(f"TinyWT {split} set: {len(self.indices)} samples")
+
+    self._h5_file = None
+
+  def __len__(self):
+    return len(self.indices)
+
+  def _resize_img_and_mask(self, img, mask):
+    if self.split == "train":
+      return random_crop_resize_img_and_mask(
+        img, mask, self.img_size, scale=(0.3, 1.0), ratio=(3 / 4, 4 / 3)
+      )
+    else:
+      return resize_img_and_mask(img, mask, self.img_size)
+
+  def _get_h5_file(self):
+    if self._h5_file is None:
+      self._h5_file = h5py.File(self.h5_path, "r", swmr=True)
+    return self._h5_file
+
+  def __del__(self):
+    if self._h5_file is not None:
+      self._h5_file.close()
+
+  def __getitem__(self, idx):
+    h5 = self._get_h5_file()
+
+    sample_idx = self.indices[idx]
+    image = torch.from_numpy(h5['image'][sample_idx])  # (H, W, C)
+    mask = torch.from_numpy(h5['mask'][sample_idx]).long()  # (H, W)
+
+    image = image.permute(2, 0, 1)
+    image = transforms_v2.ToDtype(torch.float32, scale=True)(image)
+    if self.normalize:
+      image = transforms_v2.Normalize(mean=self.MEANS, std=self.STDS)(image)
+
+    # Handle NaN pixels
+    nan_mask = torch.isnan(image).any(dim=0)
+    image = torch.where(torch.isnan(image), 0.0, image)
+    mask = torch.where(nan_mask, -1, mask)
+
+    mask = mask.unsqueeze(0)
+
+    image, mask = self._resize_img_and_mask(image, mask)
+
+    return image, mask.long()
+
+
+def tinywt(
+    data_path: str,
+    split: str = 'train',
+    img_size: int = 224,
+    normalize: bool = True,
+    h5_file: str = 'tinywt.h5',
+    splits_file: str = 'splits.json'
+):
+  return TinyWTDataset(
     data_path=data_path,
     split=split,
     img_size=img_size,

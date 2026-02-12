@@ -224,8 +224,29 @@ def main_worker(local_rank, args):
             img_size=args.img_size,
             normalize=True
         )
+    elif args.dataset == 'tinywt':
+        train_dataset = datasets.tinywt(
+            data_path=args.data_path,
+            split='train',
+            img_size=args.img_size,
+            normalize=True
+        )
+
+        val_dataset = datasets.tinywt(
+            data_path=args.data_path,
+            split='val',
+            img_size=args.img_size,
+            normalize=True
+        )
+
+        test_dataset = datasets.tinywt(
+            data_path=args.data_path,
+            split='test',
+            img_size=args.img_size,
+            normalize=True
+        )
     else:
-        raise ValueError(f"Unsupported dataset: {args.dataset}. Must be one of: mados, m-cashew-plantation, m-sa-crop-type, substation")
+        raise ValueError(f"Unsupported dataset: {args.dataset}. Must be one of: mados, m-cashew-plantation, m-sa-crop-type, substation, tinywt")
 
     print(f"Train samples: {len(train_dataset)}")
     print(f"Val samples: {len(val_dataset)}")
@@ -276,7 +297,7 @@ def main_worker(local_rank, args):
 
     # Get number of input channels from dataset
     # sample_img, _ = train_dataset[0]
-    in_chans = 4  # sample_img.shape[0]
+    in_chans = 4 if not args.dataset == 'tinywt' else 3   # sample_img.shape[0]
     # print(f"Input channels: {in_chans}")
 
     # Build encoder
@@ -332,6 +353,10 @@ def main_worker(local_rank, args):
 
             # Remove pos_embed to allow different image sizes
             encoder_state = {k: v for k, v in encoder_state.items() if 'pos_embed' not in k}
+
+            # Remove patch embed for tinyWT which has 3 chans
+            if args.dataset == 'tinywt':
+                encoder_state = {k: v for k, v in encoder_state.items() if 'embed' not in k}
 
             msg = encoder_without_ddp.load_state_dict(encoder_state, strict=False)
             print(f"Loaded encoder with msg: {msg}")
@@ -516,6 +541,13 @@ def train_one_epoch(encoder, seg_head, data_loader, optimizer, device, epoch, lo
                     ignore_index=-1,
                     weight=torch.tensor([1.0, 3.0], device=logits.device)
                 )
+            elif args.dataset == 'tinywt':
+                loss = F.cross_entropy(
+                    logits.permute(0, 2, 3, 1).reshape(-1, logits.shape[1]),
+                    masks.reshape(-1),
+                    ignore_index=-1,
+                    weight=torch.tensor([1.0, 10.0], device=logits.device)
+                )
             else:
                 loss = F.cross_entropy(
                     logits.permute(0, 2, 3, 1).reshape(-1, logits.shape[1]),
@@ -531,6 +563,13 @@ def train_one_epoch(encoder, seg_head, data_loader, optimizer, device, epoch, lo
                 ignore_index=-1
             )
 
+            if args.dataset == "substation" or args.dataset == "tinywt":
+                iou = binary_jaccard_index(
+                    logits.permute(0, 2, 3, 1).reshape(-1, logits.shape[1]).argmax(dim=1),
+                    masks.reshape(-1),
+                    ignore_index=-1
+                )
+
         if not math.isfinite(loss.item()):
             print(f"Loss is {loss.item()}, stopping training")
             sys.exit(1)
@@ -545,6 +584,7 @@ def train_one_epoch(encoder, seg_head, data_loader, optimizer, device, epoch, lo
 
         metric_logger.update(loss=loss.item() * args.accum_iter)
         metric_logger.update(miou=miou.item())
+        metric_logger.update(iou=iou.item())
         metric_logger.update(lr=lr)
 
     # Gather stats
@@ -589,7 +629,7 @@ def validate(encoder, seg_head, data_loader, device, args):
                 ignore_index=-1
             )
 
-            if args.dataset == "substation":
+            if args.dataset == "substation" or args.dataset == "tinywt":
                 iou = binary_jaccard_index(
                     logits.permute(0, 2, 3, 1).reshape(-1, logits.shape[1]).argmax(dim=1),
                     masks.reshape(-1),
@@ -598,7 +638,7 @@ def validate(encoder, seg_head, data_loader, device, args):
 
         metric_logger.update(loss=loss.item())
         metric_logger.update(miou=miou.item())
-        if args.dataset == "substation":
+        if args.dataset == "substation" or args.dataset == "tinywt":
             metric_logger.update(iou=iou)
 
     # Gather stats

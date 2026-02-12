@@ -1,0 +1,37 @@
+defaults:
+  - hydra: default
+  - env: default
+  - log: default
+
+worker: eval_linear_probe
+output_dir: checkpoints/eval
+job_name: eval_tinywt_lr_model_run1
+
+# Dataset
+dataset: tinywt
+data_path: /home/admin/john/training_utilities/TinyWT_dataset
+img_size: 448
+num_classes: 2
+
+# Model
+encoder: vit_small
+use_batchnorm: False
+
+# Evaluation mode
+eval_mode: linear_probe
+
+# Checkpoint
+pretrained_checkpoint:  /home/admin/john/LatentMIM/checkpoints/lr_model/checkpoint_0300.pth
+resume: False
+
+# Training
+epochs: 100
+warmup_epochs: 10
+batch_size: 64
+accum_iter: 1
+
+# Optimizer
+blr:  # Base learning rate (will be scaled by batch size)
+lr: 1e-3
+min_lr_frac: 1
+weight_decay: 0.0
