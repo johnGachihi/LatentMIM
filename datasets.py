@@ -28,6 +28,8 @@ NUM_CLASSES = {
   'imagenet100': 100
 }
 
+os.environ['GEO_BENCH_DIR'] = '/home/admin/AGML_ResearchGroup/_geo_bench'
+
 
 class ImageListDataset(data.Dataset):
   def __init__(self, image_list, label_list, class_desc=None, transform=None):
@@ -672,7 +674,7 @@ class GeobenchDataset(data.Dataset):
       benchmark_dir = None
 
     # Load geobench task (same as ijepa lines 263-265)
-    for task in geobench.task_iterator(benchmark_name=benchmark_name, benchmark_dir=benchmark_dir):
+    for task in geobench.task_iterator(benchmark_name=benchmark_name):
       if task.dataset_name == dataset_name:
         break
 
