@@ -157,7 +157,8 @@ def main_worker(local_rank, args):
             data_path=args.data_path,
             norm_operation=args.norm_operation,
             band_names=args.band_names,
-            img_size=args.img_size
+            img_size=args.img_size,
+            tiles_per_img=args.tiles_per_img
         )
 
         val_dataset = datasets.m_cashew_plantation(
@@ -166,7 +167,8 @@ def main_worker(local_rank, args):
             data_path=args.data_path,
             norm_operation=args.norm_operation,
             band_names=args.band_names,
-            img_size=args.img_size
+            img_size=args.img_size,
+            tiles_per_img=args.tiles_per_img
         )
 
         test_dataset = datasets.m_cashew_plantation(
@@ -175,7 +177,8 @@ def main_worker(local_rank, args):
             data_path=args.data_path,
             norm_operation=args.norm_operation,
             band_names=args.band_names,
-            img_size=args.img_size
+            img_size=args.img_size,
+            tiles_per_img=args.tiles_per_img
         )
     elif args.dataset == 'm-sa-crop-type':
         train_dataset = datasets.m_sa_crop_type(
@@ -184,7 +187,8 @@ def main_worker(local_rank, args):
             data_path=args.data_path,
             norm_operation=args.norm_operation,
             band_names=args.band_names,
-            img_size=args.img_size
+            img_size=args.img_size,
+            tiles_per_img=args.tiles_per_img
         )
 
         val_dataset = datasets.m_sa_crop_type(
@@ -193,7 +197,8 @@ def main_worker(local_rank, args):
             data_path=args.data_path,
             norm_operation=args.norm_operation,
             band_names=args.band_names,
-            img_size=args.img_size
+            img_size=args.img_size,
+            tiles_per_img=args.tiles_per_img
         )
 
         test_dataset = datasets.m_sa_crop_type(
@@ -202,7 +207,8 @@ def main_worker(local_rank, args):
             data_path=args.data_path,
             norm_operation=args.norm_operation,
             band_names=args.band_names,
-            img_size=args.img_size
+            img_size=args.img_size,
+            tiles_per_img=args.tiles_per_img
         )
     elif args.dataset == 'substation':
         train_dataset = datasets.substation(
@@ -270,8 +276,32 @@ def main_worker(local_rank, args):
             normalize=True,
             tiles_per_img=args.tiles_per_img
         )
+    elif args.dataset == 'sen1floods11':
+        train_dataset = datasets.sen1floods11(
+            data_path=args.data_path,
+            split='train',
+            img_size=args.img_size,
+            normalize=True,
+            tiles_per_img=args.tiles_per_img
+        )
+
+        val_dataset = datasets.sen1floods11(
+            data_path=args.data_path,
+            split='val',
+            img_size=args.img_size,
+            normalize=True,
+            tiles_per_img=args.tiles_per_img
+        )
+
+        test_dataset = datasets.sen1floods11(
+            data_path=args.data_path,
+            split='test',
+            img_size=args.img_size,
+            normalize=True,
+            tiles_per_img=args.tiles_per_img
+        )
     else:
-        raise ValueError(f"Unsupported dataset: {args.dataset}. Must be one of: mados, m-cashew-plantation, m-sa-crop-type, substation, tinywt, pastis")
+        raise ValueError(f"Unsupported dataset: {args.dataset}. Must be one of: mados, m-cashew-plantation, m-sa-crop-type, substation, tinywt, pastis, sen1floods11")
 
     print(f"Train samples: {len(train_dataset)}")
     print(f"Val samples: {len(val_dataset)}")
@@ -437,6 +467,15 @@ def main_worker(local_rank, args):
     best_val_loss = float('inf')
     if args.resume:
         start_epoch = ckpt_manager.resume()
+        # ckpt_manager.resume() only returns start_epoch — pull best-metric state directly
+        # from the same latest checkpoint so best-tracking survives resume.
+        latest_ckpt = os.path.join(args.log.ckpt_dir, 'checkpoint_latest.pth')
+        if os.path.isfile(latest_ckpt):
+            ckpt = torch.load(latest_ckpt, map_location='cpu')
+            best_val_miou = ckpt.get('best_val_miou', best_val_miou)
+            best_val_loss = ckpt.get('best_val_loss', best_val_loss)
+            print(f"Resumed best state: best_val_miou={best_val_miou:.4f}, "
+                  f"best_val_loss={best_val_loss:.4f}")
 
     # Setup wandb
     if args.log.use_wandb and misc.is_main_process():
@@ -584,6 +623,12 @@ def train_one_epoch(encoder, seg_head, data_loader, optimizer, device, epoch, lo
                     ignore_index=-1,
                     weight=torch.tensor([1.0, 10.0], device=logits.device)
                 )
+            elif args.dataset == 'sen1floods11':
+                loss = F.cross_entropy(
+                    logits, masks,
+                    ignore_index=-1,
+                    weight=torch.tensor([0.3, 0.7], device=logits.device)
+                )
             else:
                 loss = F.cross_entropy(logits, masks, ignore_index=-1)
 
@@ -593,7 +638,7 @@ def train_one_epoch(encoder, seg_head, data_loader, optimizer, device, epoch, lo
                 num_classes=args.num_classes, ignore_index=-1
             )
 
-            if args.dataset == "substation" or args.dataset == "tinywt":
+            if args.dataset in ("substation", "tinywt", "sen1floods11"):
                 iou = binary_jaccard_index(
                     logits.argmax(dim=1), masks.reshape(-1),
                     ignore_index=-1
@@ -613,7 +658,7 @@ def train_one_epoch(encoder, seg_head, data_loader, optimizer, device, epoch, lo
 
         metric_logger.update(loss=loss.item() * args.accum_iter)
         metric_logger.update(miou=miou.item())
-        if args.dataset == "substation" or args.dataset == "tinywt":
+        if args.dataset in ("substation", "tinywt", "sen1floods11"):
             metric_logger.update(iou=iou.item())
         metric_logger.update(lr=lr)
 
@@ -672,12 +717,12 @@ def validate(encoder, seg_head, data_loader, device, args):
             miou_metric.update(logits, masks)
             iou_metric.update(logits, masks)
 
-            if args.dataset == "substation" or args.dataset == "tinywt":
+            if args.dataset in ("substation", "tinywt", "sen1floods11"):
                 iou = binary_jaccard_index(logits.argmax(dim=1), masks, ignore_index=-1)
 
         metric_logger.update(loss=loss.item())
         metric_logger.update(miou=miou.item())
-        if args.dataset == "substation" or args.dataset == "tinywt":
+        if args.dataset in ("substation", "tinywt", "sen1floods11"):
             metric_logger.update(iou=iou)
 
     # Gather stats

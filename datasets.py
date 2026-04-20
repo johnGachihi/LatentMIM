@@ -21,7 +21,7 @@ from util.transforms import (
 from util import misc
 
 __all__ = ['imagenet', 'imagenet100', 'sen2venus', 'rapidai4eo', 'mados', 'm_cashew_plantation', 'm_sa_crop_type',
-           'substation', 'tinywt', 'pastis']
+           'substation', 'tinywt', 'pastis', 'sen1floods11']
 
 NUM_CLASSES = {
   'imagenet': 1000,
@@ -635,7 +635,8 @@ class GeobenchDataset(data.Dataset):
       norm_operation: str = 'standardize',
       benchmark_name: str = "segmentation_v0.9.1",
       band_names: list = None,
-      img_size: int = 64
+      img_size: int = 64,
+      tiles_per_img: int = 1
   ):
     """
     Args:
@@ -647,6 +648,8 @@ class GeobenchDataset(data.Dataset):
         benchmark_name: Geobench benchmark name
         band_names: List of band names to use (default: Blue, Green, Red, NIR)
         img_size: Size to resize images to
+        tiles_per_img: Number of non-overlapping square tiles per image (1, 4, 16, ...).
+                       Must be a perfect square and must evenly divide the native image side.
     """
     import geobench
     import os
@@ -655,12 +658,16 @@ class GeobenchDataset(data.Dataset):
       f"split must be 'train', 'valid', or 'test', not {split}"
     assert dataset_name in ["m-SA-crop-type", "m-cashew-plantation"], \
       f"dataset_name must be 'm-SA-crop-type' or 'm-cashew-plantation', not {dataset_name}"
+    assert tiles_per_img >= 1 and int(tiles_per_img ** 0.5) ** 2 == tiles_per_img, \
+      "tiles_per_img must be a perfect square (1, 4, 16, ...)"
 
     self.split = split
     self.partition = partition
     self.dataset_name = dataset_name
     self.norm_operation = norm_operation
     self.img_size = to_2tuple(img_size)
+    self.tiles_per_img = tiles_per_img
+    self.tiles_per_dim = int(tiles_per_img ** 0.5)
 
     # Default to Sentinel-2 BGR+NIR bands (same as ijepa line 246)
     if band_names is None:
@@ -698,7 +705,7 @@ class GeobenchDataset(data.Dataset):
     self.norm_stats = self.dataset.normalization_stats()
 
   def __len__(self):
-    return len(self.dataset)
+    return len(self.dataset) * self.tiles_per_img
 
   def _normalize_bands(self, image):
     """
@@ -738,7 +745,9 @@ class GeobenchDataset(data.Dataset):
     Corresponds to ijepa __getitem__ (lines 281-313).
     """
     # Load sample from geobench (same as ijepa lines 282-283)
-    sample = self.dataset[idx]
+    img_idx = idx // self.tiles_per_img
+    tile_idx = idx % self.tiles_per_img
+    sample = self.dataset[img_idx]
     label = sample.label
 
     # Load bands (same as ijepa line 286)
@@ -761,6 +770,16 @@ class GeobenchDataset(data.Dataset):
     image = image.permute(2, 0, 1)
     # Add channel dimension to target: (1, H, W) (same as ijepa line 303)
     target = target.unsqueeze(0)
+
+    # Slice a non-overlapping tile before resize.
+    if self.tiles_per_img > 1:
+      h, w = image.shape[-2], image.shape[-1]
+      assert h % self.tiles_per_dim == 0 and w % self.tiles_per_dim == 0, \
+        f"Image {h}x{w} does not evenly divide into {self.tiles_per_dim}x{self.tiles_per_dim} tiles"
+      tile_h, tile_w = h // self.tiles_per_dim, w // self.tiles_per_dim
+      r, c = tile_idx // self.tiles_per_dim, tile_idx % self.tiles_per_dim
+      image = image[:, r * tile_h:(r + 1) * tile_h, c * tile_w:(c + 1) * tile_w]
+      target = target[:, r * tile_h:(r + 1) * tile_h, c * tile_w:(c + 1) * tile_w]
 
     # Resize with proper interpolation (same as ijepa lines 305-309)
     # CRITICAL: Use NEAREST interpolation for masks to preserve labels
@@ -786,7 +805,8 @@ def m_cashew_plantation(
     data_path: str = None,
     norm_operation: str = 'standardize',
     band_names: list = None,
-    img_size: int = 64
+    img_size: int = 64,
+    tiles_per_img: int = 1
 ):
   """
   Create m-cashew-plantation dataset.
@@ -801,6 +821,7 @@ def m_cashew_plantation(
       norm_operation: Normalization operation ('standardize', 'norm_yes_clip', etc.)
       band_names: List of Sentinel-2 band names (default: Blue, Green, Red, NIR)
       img_size: Target image size
+      tiles_per_img: Non-overlapping tiles per native 256x256 image (1, 4, 16, ...)
 
   Returns:
       GeobenchDataset instance
@@ -816,7 +837,8 @@ def m_cashew_plantation(
     norm_operation=norm_operation,
     benchmark_name="segmentation_v0.9.1",
     band_names=band_names,
-    img_size=img_size
+    img_size=img_size,
+    tiles_per_img=tiles_per_img
   )
 
   return dataset
@@ -828,7 +850,8 @@ def m_sa_crop_type(
     data_path: str = None,
     norm_operation: str = 'standardize',
     band_names: list = None,
-    img_size: int = 64
+    img_size: int = 64,
+    tiles_per_img: int = 1
 ):
   """
   Create m-SA-crop-type dataset.
@@ -843,6 +866,7 @@ def m_sa_crop_type(
       norm_operation: Normalization operation ('standardize', 'norm_yes_clip', etc.)
       band_names: List of Sentinel-2 band names (default: Blue, Green, Red, NIR)
       img_size: Target image size
+      tiles_per_img: Non-overlapping tiles per native 256x256 image (1, 4, 16, ...)
 
   Returns:
       GeobenchDataset instance
@@ -858,7 +882,8 @@ def m_sa_crop_type(
     norm_operation=norm_operation,
     benchmark_name="segmentation_v0.9.1",
     band_names=band_names,
-    img_size=img_size
+    img_size=img_size,
+    tiles_per_img=tiles_per_img
   )
 
   return dataset
@@ -1165,4 +1190,152 @@ def pastis(
     tiles_per_img=tiles_per_img,
     h5_file=h5_file,
     norm_stats_file=norm_stats_file
+  )
+
+
+class Sen1Floods11Dataset(data.Dataset):
+  """
+  Sen1Floods11 dataset (Sentinel-2 only) for binary flood segmentation.
+
+  Reads S2Hand GeoTIFFs (13 bands, 512x512, int16) and LabelHand masks (values {-1, 0, 1}
+  where -1 is no-data/ignored, 0 is no-flood, 1 is flood).
+
+  Splits come from CSVs whose rows list `<scene>_S1Hand.tif, <scene>_LabelHand.tif`; the S1
+  filename is converted to the matching S2Hand file.
+
+  Each 512x512 scene is split into `tiles_per_img` non-overlapping square tiles.
+  """
+
+  # S2 L1C stats computed on the Sen1Floods11 hand-labeled train split (13 bands).
+  MEANS = [1626.92, 1396.03, 1364.06, 1218.23, 1466.07, 2386.90, 2845.61, 2622.96,
+           3077.48, 486.87, 63.78, 2030.65, 1179.17]
+  STDS  = [700.17, 739.09, 735.25, 864.94, 776.88, 921.37, 1084.37, 1022.63,
+           1196.44, 336.61, 144.00, 980.87, 764.61]
+
+  SPLIT_CSV = {
+    'train': 'v1.1/splits/flood_handlabeled/flood_train_data.csv',
+    'val':   'v1.1/splits/flood_handlabeled/flood_valid_data.csv',
+    'test':  'v1.1/splits/flood_handlabeled/flood_test_data.csv',
+  }
+
+  def __init__(
+      self,
+      data_path: str,
+      split: str = 'train',
+      img_size: int = 224,
+      normalize: bool = True,
+      tiles_per_img: int = 64,
+      filter_bands: list = [1, 2, 3, 7],  # B, G, R, NIR (B02, B03, B04, B08)
+      filter_empty_tiles: bool = True,
+  ):
+    assert split in self.SPLIT_CSV, \
+      f"Invalid split: {split}. Must be one of {list(self.SPLIT_CSV)}"
+    # Must divide 512 into an integer grid.
+    assert tiles_per_img >= 1 and int(tiles_per_img ** 0.5) ** 2 == tiles_per_img, \
+      "tiles_per_img must be a perfect square (1, 4, 16, 64, ...)"
+
+    import pandas as pd
+    import rasterio
+    self.data_root = Path(data_path)
+    self.s2_root = self.data_root / 'v1.1/data/flood_events/HandLabeled/S2Hand'
+    self.label_root = self.data_root / 'v1.1/data/flood_events/HandLabeled/LabelHand'
+    self.split = split
+    self.img_size = to_2tuple(img_size)
+    self.normalize = normalize
+    self.tiles_per_img = tiles_per_img
+    self.tiles_per_dim = int(tiles_per_img ** 0.5)
+    self.filter_bands = filter_bands
+
+    self.samples = pd.read_csv(self.data_root / self.SPLIT_CSV[split], header=None).values.tolist()
+
+    # Enumerate (scene_idx, tile_idx). If filter_empty_tiles, drop tiles whose label
+    # patch has no positive (flood) pixels, matching Galileo's sen1floods11 pipeline.
+    if filter_empty_tiles and tiles_per_img > 1:
+      self.tile_index = []
+      for scene_idx, (_, label_name) in enumerate(self.samples):
+        with rasterio.open(self.label_root / label_name) as src:
+          label = torch.from_numpy(src.read()).long()  # (1, 512, 512)
+        th = label.shape[-2] // self.tiles_per_dim
+        tw = label.shape[-1] // self.tiles_per_dim
+        for r in range(self.tiles_per_dim):
+          for c in range(self.tiles_per_dim):
+            lt = label[:, r * th:(r + 1) * th, c * tw:(c + 1) * tw]
+            if torch.any(lt > 0):
+              self.tile_index.append((scene_idx, r * self.tiles_per_dim + c))
+    else:
+      self.tile_index = [(s, t) for s in range(len(self.samples)) for t in range(tiles_per_img)]
+
+    print(f"Sen1Floods11 {split} set: {len(self.samples)} scenes "
+          f"x {tiles_per_img} tiles -> {len(self.tile_index)} samples "
+          f"(filter_empty_tiles={filter_empty_tiles})")
+
+  def __len__(self):
+    return len(self.tile_index)
+
+  def _normalize_bands(self, image):
+    means = torch.tensor(self.MEANS).view(-1, 1, 1)
+    stds = torch.tensor(self.STDS).view(-1, 1, 1)
+    return (image - means) / stds
+
+  def _resize_img_and_mask(self, img, mask):
+    if self.split == 'train':
+      return random_crop_resize_img_and_mask(
+        img, mask, self.img_size, scale=(0.3, 1.0), ratio=(3 / 4, 4 / 3)
+      )
+    return resize_img_and_mask(img, mask, self.img_size)
+
+  def __getitem__(self, idx):
+    import rasterio
+
+    scene_idx, tile_idx = self.tile_index[idx]
+    s1_name, label_name = self.samples[scene_idx]
+    s2_path = self.s2_root / s1_name.replace('S1Hand', 'S2Hand')
+    label_path = self.label_root / label_name
+
+    with rasterio.open(s2_path) as src:
+      image = torch.from_numpy(src.read()).float()           # (13, 512, 512)
+    with rasterio.open(label_path) as src:
+      mask = torch.from_numpy(src.read()).long().squeeze(0)  # (512, 512)
+
+    # Tile
+    tile_h = image.shape[-2] // self.tiles_per_dim
+    tile_w = image.shape[-1] // self.tiles_per_dim
+    r, c = tile_idx // self.tiles_per_dim, tile_idx % self.tiles_per_dim
+    image = image[:, r * tile_h:(r + 1) * tile_h, c * tile_w:(c + 1) * tile_w]
+    mask = mask[r * tile_h:(r + 1) * tile_h, c * tile_w:(c + 1) * tile_w]
+
+    # Handle NaN pixels
+    nan_mask = torch.isnan(image).any(dim=0)
+    image = torch.where(torch.isnan(image), 0.0, image)
+    mask = torch.where(nan_mask, -1, mask)
+
+    if self.normalize:
+      image = self._normalize_bands(image)
+
+    if self.filter_bands is not None:
+      image = image[self.filter_bands]
+
+    mask = mask.unsqueeze(0)  # (1, H, W)
+    image, mask = self._resize_img_and_mask(image, mask)
+
+    return image, mask.long()
+
+
+def sen1floods11(
+    data_path: str,
+    split: str = 'train',
+    img_size: int = 224,
+    normalize: bool = True,
+    tiles_per_img: int = 64,
+    filter_bands: list = [1, 2, 3, 7],
+    filter_empty_tiles: bool = True,
+):
+  return Sen1Floods11Dataset(
+    data_path=data_path,
+    split=split,
+    img_size=img_size,
+    normalize=normalize,
+    tiles_per_img=tiles_per_img,
+    filter_bands=filter_bands,
+    filter_empty_tiles=filter_empty_tiles,
   )

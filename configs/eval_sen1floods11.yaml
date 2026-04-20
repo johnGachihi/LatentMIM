@@ -1,0 +1,39 @@
+defaults:
+  - hydra: default
+  - env: default
+  - log: default
+
+worker: eval_linear_probe
+output_dir: checkpoints/eval
+job_name: eval_linear_probe_sen1floods11_hr_model_run1_tiles1
+
+# Dataset
+dataset: sen1floods11
+data_path: /home/admin/AGML_ResearchGroup/SuperResolution/sen1floods11
+img_size: 224
+num_classes: 2  # Binary segmentation: no-flood (0) and flood (1)
+tiles_per_img: 64  # Split each 512x512 into 64 non-overlapping 64x64 tiles (Galileo setup)
+
+# Model
+encoder: vit_small
+use_batchnorm: False
+
+# Evaluation mode
+eval_mode: linear_probe  # or 'finetune'
+
+# Checkpoint
+pretrained_checkpoint: /home/admin/john/LatentMIM/checkpoints/hr_model/checkpoint_0300.pth
+resume: False
+checkpoint_metric: miou  # 'miou' or 'loss'
+
+# Training
+epochs: 100
+warmup_epochs: 10
+batch_size: 64
+accum_iter: 1
+
+# Optimizer
+blr:
+lr: 1e-3
+min_lr_frac: 1
+weight_decay: 0.0
