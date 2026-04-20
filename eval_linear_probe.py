@@ -246,8 +246,32 @@ def main_worker(local_rank, args):
             img_size=args.img_size,
             normalize=True
         )
+    elif args.dataset == 'pastis':
+        train_dataset = datasets.pastis(
+            data_path=args.data_path,
+            split='train',
+            img_size=args.img_size,
+            normalize=True,
+            tiles_per_img=args.tiles_per_img
+        )
+
+        val_dataset = datasets.pastis(
+            data_path=args.data_path,
+            split='val',
+            img_size=args.img_size,
+            normalize=True,
+            tiles_per_img=args.tiles_per_img
+        )
+
+        test_dataset = datasets.pastis(
+            data_path=args.data_path,
+            split='test',
+            img_size=args.img_size,
+            normalize=True,
+            tiles_per_img=args.tiles_per_img
+        )
     else:
-        raise ValueError(f"Unsupported dataset: {args.dataset}. Must be one of: mados, m-cashew-plantation, m-sa-crop-type, substation, tinywt")
+        raise ValueError(f"Unsupported dataset: {args.dataset}. Must be one of: mados, m-cashew-plantation, m-sa-crop-type, substation, tinywt, pastis")
 
     print(f"Train samples: {len(train_dataset)}")
     print(f"Val samples: {len(val_dataset)}")
@@ -523,12 +547,22 @@ def train_one_epoch(encoder, seg_head, data_loader, optimizer, device, epoch, lo
         masks = masks.to(device, non_blocking=True).squeeze(1)  # Dataset returns long type
 
         with torch.cuda.amp.autocast():
+            # For multi-timestep inputs (e.g. PASTIS [B,T,C,H,W]): encode per-timestep, mean-pool over T
+            if images.dim() == 5:
+                B, T = images.shape[:2]
+                enc_input = images.reshape(B * T, *images.shape[2:])
+            else:
+                B, T, enc_input = images.shape[0], 1, images
+
             # Get encoder features
             if args.eval_mode == 'linear_probe':
                 with torch.no_grad():
-                    features = encoder(images)  # [B, N, D]
+                    features = encoder(enc_input)  # [B*T, N, D]
             else:
-                features = encoder(images)
+                features = encoder(enc_input)
+
+            if T > 1:
+                features = features.reshape(B, T, *features.shape[1:]).mean(dim=1)  # [B, N, D]
 
             # Get segmentation predictions
             target_size = (masks.shape[1], masks.shape[2])
@@ -599,14 +633,25 @@ def validate(encoder, seg_head, data_loader, device, args):
     header = 'Validation:'
 
     miou_metric = MulticlassJaccardIndex(num_classes=args.num_classes, ignore_index=-1).to(device)
+    iou_metric = MulticlassJaccardIndex(num_classes=args.num_classes, ignore_index=-1, average=None).to(device)
 
     for images, masks in metric_logger.log_every(data_loader, args.log.print_freq, header):
         images = images.to(device, non_blocking=True)
         masks = masks.to(device, non_blocking=True).squeeze(1)  # Dataset returns long type
 
         with torch.cuda.amp.autocast():
+            # For multi-timestep inputs (e.g. PASTIS [B,T,C,H,W]): encode per-timestep, mean-pool over T
+            if images.dim() == 5:
+                B, T = images.shape[:2]
+                enc_input = images.reshape(B * T, *images.shape[2:])
+            else:
+                B, T, enc_input = images.shape[0], 1, images
+
             # Get features
-            features = encoder(images)
+            features = encoder(enc_input)
+
+            if T > 1:
+                features = features.reshape(B, T, *features.shape[1:]).mean(dim=1)
 
             # Get predictions
             target_size = (masks.shape[1], masks.shape[2])
@@ -625,6 +670,7 @@ def validate(encoder, seg_head, data_loader, device, args):
                 ignore_index=-1
             )
             miou_metric.update(logits, masks)
+            iou_metric.update(logits, masks)
 
             if args.dataset == "substation" or args.dataset == "tinywt":
                 iou = binary_jaccard_index(logits.argmax(dim=1), masks, ignore_index=-1)
@@ -638,6 +684,7 @@ def validate(encoder, seg_head, data_loader, device, args):
     metric_logger.synchronize_between_processes()
     print(f"Validation stats: {metric_logger}")
     print(f"mIoU: {miou_metric.compute()}")
+    print(f"iou: {iou_metric.compute()}")
 
     return {
         "loss": metric_logger.loss.global_avg,
